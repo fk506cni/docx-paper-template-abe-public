@@ -1,0 +1,33 @@
+# data/dummy/abe-csl/expected.txt — abe.csl の期待出力 (文献リスト)
+#
+# 出典: Instructions to Authors (PDF・末尾の日付 1 April 2026) の "References" の例 6 件 (docs/journal-abe.md §4)。
+# 突合: bash scripts/check-csl.sh --journal abe --fixture data/dummy/abe-csl  (main/step02_build/check_csl.py が 1 文字ずつ比較する)
+#
+# 書式: `#` 始まりと空行はコメント。それ以外の 1 行 = 文献リストの 1 エントリ (番号 [n] は書かない。番号は行順)。
+#       **…** は太字 (規定 "Write the volume number in bold letters")、*…* は斜体。書式も文字と同じく照合する。
+#
+# 1〜6 行目は規定の例の文字列からの転記で、PDF の文字どおりでない点が 3 つある (どれも本テンプレートの判断として記録する):
+#   (1) ページ範囲の区切り: PDF は U+2012 (FIGURE DASH) だが、ここは U+2013 (エンダッシュ)。PDF は住所・郵便番号・FAX 番号にも
+#       U+2012 を使っていて組版での置き換えとみられ、J-STAGE に載った ABE の論文の文献欄はエンダッシュのため。
+#       ハイフンや U+2012 に直さないこと
+#   (2) 太字: PDF で太字なのは例 1 の巻 "5" だけ (例 4 の "Vol. 2" は太字でない。PDF のフォント名で確かめた)。その位置に ** を付けた
+#   (3) 6 行目は規定の一般形 ([6] Web page or author …) の下の例 (e.g. …) の行で、PDF ではその行に番号が無い
+#   ほかの字 (例 4 の ’ は U+2019) は PDF のまま。PDF の行末のハイフネーション (Ber-lin) と改行は戻した
+# 規定とテンプレートの例の食い違い (docs/journal-abe.md §9 の 3。テンプレートは pp. つき・巻 MI-5) は規定の例を採った。
+
+Hohne KH, Bernstein R: Shading 3D-images from CT using gray-level gradients. IEEE Trans Med Imag. **5**(1), 45–47, 1986.
+Born M, Wolf E: Principles of Medical Engineering, 2nd ed. Pergamon Press, New York, pp. 69–94, 1988.
+Chandler S: Adaptive model control applied to real time blood pressure regulation. In: Black C ed. Pattern Recognition and Machine Learning, McGraw-Hill, Berlin, pp. 310–324, 1985.
+Heel N: Automated blood pressure control using a self-tuning regulator. Proc of NCGA’S Computer Graphics Conference ’87, Vol. 2. Am Med Eng Soc., New York, pp. 152–161, 1988.
+White AG: US Patent No. 1234567. 1982.
+Advanced Biomedical Engineering: Instructions to Authors. <https://abe-journal.org/submission/> [accessed on January 1, 2020].
+
+# 7〜10 行目は規定の例ではなく、本テンプレートの実装判断の回帰ガード (実装の出力に合わせた期待値なので、1〜6 行目と違い独立性は無い)。
+#   7: 全著者 (7 名) を出し et al. で切らない・号が無ければ括弧を出さない・誌名のピリオドを外す (bib は "Jpn. J. Tremendous Hunch")・巻は太字
+#   8: 編者 2 名は "eds"・書名の後の版は "3rd ed.," と続く
+#   9: 巻・号・ページが無い雑誌論文 (早期公開) は DOI を出す
+#  10: 公式例に無い型 (報告書) は本の形で出し、URL を公式例 6 の形で足す (団体の著者)
+Yokan T, Chokkan H, Dan B, Uwanosora M, Tremendo H, Hunchshire K, Vibes T: Seven authors agree on the weight of the apparatus. Jpn J Tremendous Hunch. **12**, e1024, 2099.
+Dan B: Cold sweat as a dimensional quantity. In: Chokkan H, Vibes T eds. Handbook of Hunch Engineering, 3rd ed., Hunch Press, Tremendo, pp. 101–120, 2100.
+Chokkan H, Yokan T: A hunch that arrived before its own apparatus. Int J Vibes Res. doi: 10.0000/ijvr.2101.0001, 2101.
+Hunch Institute: Annual report on the tremendous hunch. Hunch Institute, Tremendo, 2101. <https://example.org/hunch/report-2101.pdf> [accessed on March 3, 2101].

@@ -1,0 +1,657 @@
+# 設計 (architecture.md)
+
+処理の流れと、なぜそういう作りにしたかをまとめる。使い方は [`docs/usage-guide.md`](usage-guide.md)、
+`profile.yaml` のキーは [`docs/profile-schema.md`](profile-schema.md)、差分の詳しい仕組みは
+[`docs/design-fullarea-diff.md`](design-fullarea-diff.md)、ABE の規定と学会テンプレートの読み解きは
+[`docs/journal-abe.md`](journal-abe.md) にある。
+
+節の番号は段の番号に合わせてある (§2.1 = step01 の図の前処理 … §2.5 = step05 の投稿パッケージ)。コードのコメントも
+この番号で参照する。
+
+---
+
+## 0. 設計上の確定事項
+
+| 論点 | 採用 | 採らなかった案と理由 |
+|------|------|-------------------|
+| docx → PDF | **Windows の Word (COM) で変換する roundtrip だけ** (任意の機能) | LibreOffice は Word 固有の体裁 (テキストボックス・行番号・フィールド・段組) の再現が劣るため、PDF 化には使わない |
+| 図の埋め込み | **ネイティブ SVG + PNG フォールバック** | EMF への変換は品質の検証の手間が大きい。閲覧環境ごとに出し分ける方式は複雑になる |
+| 差分 | **構造保持 AST 差分 → 色ハイライト** (全領域) | Word の変更履歴は表・テキストボックス・図に弱い。pandiff は内部で HTML の語単位の差分を取り、`custom-style` Div・表・生 OOXML を壊す |
+| 既定の書式 | **汎用の投稿フォーマット** (ダブルスペース・連続行番号・Times 相当 12 pt・余白 25 mm) | 多くの英文誌の初回投稿の要件に合う |
+| 雑誌が Word のテンプレートを配る誌 (ABE) | **テンプレートを雛形にして `reference.docx` を作る** (`reference_base`。体裁は焼き込まない) | 体裁を `profile.yaml` から再現して焼き込む案は、2 段組・柱・見出しの番号定義などテンプレートの見た目を写しきれず、改版にも追随できない。テンプレートと生成物は配布物の扱いになるので同梱も追跡もしない |
+| 雑誌ごとの違い | **`data/journals/<id>/` のプロファイルに閉じ込める** | 原稿 (`src/main.md`) は雑誌に依存させない。誌の要求 (段組・表を末尾へ・別ファイルへ・凡例を集める) は、プロファイルのキーで発火する後処理と、提出物を作る段で満たす。**誌の id で処理を分けない** (別の誌が同じ要求を持てば、同じキーを書くだけで効く) |
+| 段組 | **原稿に書かず、後処理が節を組み立てる** (`layout`) | 原稿に生 OOXML の `sectPr` を書くと、同じ原稿を 1 段組の誌に出せなくなる。段抜きは誌によらない記法 (`{.wide}` / `::: wide`) にした |
+| 実行環境 | **変換はすべてコンテナの中** | ホストに何も入れない。版を固定して出力を再現できるようにする |
+
+---
+
+## 1. システム構成
+
+### 1.1 データフロー
+
+```
+              src/main.md   src/ref.bib   src/figs/*.{svg,pdf,png}  src/figs/mermaid/*.mmd
+                   │             │               │                         │
+                   │             │               ▼                         ▼
+                   │             │        [step01_figures]  ◄──── (mermaid: .mmd → svg/pdf)
+                   │             │   SVG 補正 / PDF → SVG (+pt) / SVG → PNG (要求 dpi + pHYs)
+                   │             │               │
+                   │             │               ▼  data/step01_figures/figs/
+                   ▼             ▼               ▼
+  雑誌プロファイル ──► [step02_build] ◄───────────┘
+  (CSL / reference.docx   pandoc: crossref → generic-style.lua → citeproc (→ unnumbered-style.lua / wide-blocks.lua)
+   ← 焼き込み or 誌の       後処理: 表の罫線 / SVG のネイティブ埋め込み / テキストボックス / 行番号の範囲
+     テンプレートから)              (+ キーで発火: 柱・所属・脚注の記号 / 段組の節 / 図表の題と凡例 / 式番号 / 文献の区切り)
+                   │
+                   ▼  data/step02_build/{main,revise-report,cover-letter}.docx
+                   │
+     旧版 main.md ─► [step03_diff]  pandoc -t json (旧 / 新) → 構造保持 AST 差分 → 色 span → docx (build と同じ後処理)
+                   │
+                   ▼  data/step03_diff/main_diff.docx
+                   │
+                   ├──────────────► [step05_package]  プロファイルに従って提出物を組み立てる
+                   │                  草稿 / 最終 (図の分離・表の移設 / 別ファイル化・凡例の集約、または図を埋め込んだまま)・
+                   │                  記入済みの書式の複製・規定チェック
+                   │                  → data/output/<id>/ (manuscript / tables / figures / forms / SUBMISSION.md / CAPTIONS.md …)
+                   │
+                   ▼  [step04_pdf]  roundtrip.sh (任意)
+         data/output/*.docx → rclone → Google Drive → Windows の Word → PDF → data/products/
+         (提出パッケージの本文・表・書式も PDF にし、パッケージ一式を Drive の submission-<id>/ に置く)
+```
+
+### 1.2 コンテナ
+
+変換専用のコンテナを 3 つ使う。どれも常駐しないので、**ポートは公開しない**。イメージ名にはプロジェクト名を前に付け、
+ベースイメージのタグと、pandoc / pandoc-crossref / panflute / lxml / mermaid-cli の版を固定する。apt / apk のパッケージ
+(librsvg・LibreOffice・Inkscape など) は、ビルドした時点の配布物の版になる (部分的な再現性)。mermaid-cli は固定しているが、
+その依存の描画の本体 (`mermaid`) は mermaid-cli が許す範囲 (11.x) でビルドした時点の版になるので、イメージを作り直すと
+Mermaid 図の見た目が変わりうる。
+
+| イメージ | ベース | 役割 | 起動のしかた |
+|---------|--------|------|-------------|
+| `docx-paper-template-pandoc` | ubuntu:24.04 | md → docx・差分・後処理・reference.docx の生成・図の pptx 化・検査 | `docker compose -f docker/docker-compose.yml run --rm` (ビルドは利用者が 1 回行う) |
+| `docx-paper-template-mermaid` | node (タグ固定) | `.mmd` → svg / pdf | `docker/mermaid/convert.sh` が未ビルドなら自動でビルドする |
+| `docx-paper-template-svg-converter` | alpine (タグ固定) | svg → pdf / svg → 文字をアウトライン化した svg (最終図) | `docker/svg-conversion/convert.sh` が未ビルドなら自動でビルドする |
+
+#### 1.2.1 pandoc コンテナ
+
+| 区分 | 中身 | 用途 |
+|------|------|------|
+| ARG | pandoc `3.6.4` / pandoc-crossref `0.3.19` | 変換エンジンと相互参照番号 (この 2 つは組で更新する。片方だけ上げると crossref が動かない) |
+| pip | panflute / lxml (版を固定) | 構造保持 AST 差分 / OOXML の直接操作。プロファイルの読み込みに使う PyYAML は panflute の依存として入り、版は固定していない |
+| apt | librsvg (`rsvg-convert`) / pdf2svg | SVG → PNG / PDF → SVG |
+| apt | Noto CJK / IPA フォント | 和文の描画 |
+| apt | git | コンテナの中の補助 (旧版の取り出しは `diff.sh` がホストの git で行う) |
+| apt | LibreOffice Writer + Impress | 生成した docx / pptx の**読み込み検査** (Word / PowerPoint とは独立した OOXML の実装で開けるか) と、雑誌が `.doc` で配るテンプレートを `.docx` に直すとき (手で `soffice` を回す) に使う。PDF 化には使わない |
+
+画像処理ライブラリ (Pillow / ImageMagick など) は入れていない。PNG の pHYs の書き込みは標準ライブラリ (`struct` + `zlib`) で
+チャンクを組み立てている (`main/00_setup/lib/svg_raster.py`)。
+
+```bash
+# 生成物の読み込み検査の例 (Word / PowerPoint の実機の代わりにはならない)
+docker compose -f docker/docker-compose.yml run --rm -u "$(id -u):$(id -g)" pandoc \
+    soffice --headless --convert-to pdf --outdir jank/ data/output/abe/manuscript.docx
+```
+
+#### 1.2.2 mermaid コンテナ
+
+- `node` + `@mermaid-js/mermaid-cli` (`mmdc`。版を固定) + headless Chromium + 和文フォント。Puppeteer は
+  `--no-sandbox` で動かす。
+- `docker/mermaid/config.json` (テーマ) と `docker/mermaid/postprocess-svg.js` (後処理) は**実行時に読み取り専用で被せる**。
+  イメージに焼いた写しだけだと、設定を直しても再ビルドするまで古い設定で動くため。
+- **ラベルは SVG の `<text>` で出す** (`config.json` の最上位の `"htmlLabels": false`)。HTML のラベル (`foreignObject`) は
+  Word と librsvg (PNG フォールバック) で消える。
+- 後処理は (1) **`hsl()` などの色を 16 進に直す** (Word / PowerPoint は `hsl()` の色の図形を黒く塗る) と
+  (2) **`<text>` に `xml:space="preserve"` を付ける** (語の間の空白を librsvg が落とすため) の 2 つ。生成した SVG に
+  `foreignObject` が残っていれば警告する。
+
+#### 1.2.3 svg-conversion コンテナ
+
+- Inkscape + Ghostscript + fontconfig。**MS Core Fonts** はビルド時に取得し、SHA256 (`docker/svg-conversion/mscorefonts.sha256`)
+  で検証する。取得・検証に失敗したらビルドを止める (フォントを黙って欠かさない)。オフラインで作るときは取得済みのフォントを
+  `fonts/` に置き、`FETCH_MSCOREFONTS=false` で取得を省く。
+- **専有フォント** (Calibri / Yu Gothic など) は同梱しない。必要なら利用者が `fonts/` (git 管理外) に置く。無ければ代わりの
+  フォントになる (ビルドは続く)。イメージは無いときにだけビルドするので、後からフォントを足したら
+  `docker image rm docx-paper-template-svg-converter` で消す (次に使うときに作り直す。`convert.sh --rebuild` でもよい)。
+  フォントを含むので、ビルドしたイメージは公開のレジストリに上げないこと。
+- svg → pdf は既定で**文字をアウトライン化する** (`--export-text-to-path`)。フォントの無い環境でも字形が保たれるが、文字の
+  選択・検索はできなくなり、雑誌の「フォントの埋め込み」の要求とは意味が違う。埋め込みは `figures.font_handling: embed`
+  (`convert.sh --embed-fonts`)。`--outline-svg` は pptx に入れる SVG のアウトライン化 (`figures.pptx.text_to_path: true`) に使う。
+- 図を本文に埋め込んだまま提出する誌 (ABE) では最終の図を作らないので、このコンテナは使わない。
+
+---
+
+## 2. 段ごとの処理
+
+### 2.0 共通設定 (main/00_setup/)
+
+- `defaults.yaml` — pandoc の共通引数と、pandoc-crossref の設定 (`figureTitle` / `tableTitle` / `figPrefix` / `tblPrefix` など)。
+  誌ごとの上書きは `profile.yaml` の `crossref` に書き、build / diff が metadata だけを書いた 2 つ目の `--defaults` にして渡す
+  (`--metadata-file` は `defaults.yaml` に負けて効かず、`-M` はリストの値と重なって止まるため)。
+- `filters/generic-style.lua` — (1) 図のパス `*.svg` を `*.svg.png` に書き換える (pandoc の段では PNG を置き、SVG は
+  後処理で足す) (2) `custom-style` の適用 (3) テキストボックスの目印を出す (4) 画像の出現順の一覧 (マニフェスト) を書く。
+- `filters/unnumbered-style.lua` — `profile.yaml` の `headings.unnumbered_style` があれば、`{.unnumbered}` の見出しをその段落スタイルの
+  段落にする (テンプレートの見出しのスタイルは自動番号を持つので、見出しのままだと番号が付く)。citeproc の後に掛ける (References の
+  見出しは citeproc が足すため)。キーの無い誌には pandoc の引数も足さない。
+- `filters/wide-blocks.lua` — 図の `{.wide}` と `::: wide` の Div (と直後の凡例) に段抜きの目印を付ける。節を組み立てるのは後処理
+  (`layout.py`。§2.2)。段組の誌 (`layout.columns` が 2 以上) にだけ掛け、段組の無い誌には pandoc の引数も足さない (`.wide` は何もしない)。
+  表の題に属性の文字が残った表 (`{#tbl:x .wide}`。pandoc-crossref が番号を付けられない) を警告する。
+- `filters/color-diff.lua` — 差分の span (`.diff-add` / `.diff-del`) を文字スタイル `DiffAdd` / `DiffDel` に写す。
+  生の OOXML の run は書かない。数式・リンク・脚注の参照のように文字スタイルが届かないものには目印を付け、後処理が色を付ける (§2.3)。
+- `lib/` — OOXML の後処理と共通部品:
+  `journal_profile.py` (プロファイルの読み込み・既定値・記事種別の解決) /
+  `patch_reference_docx.py` (reference.docx への体裁の焼き込み、またはテンプレートを雛形にした生成。§3) /
+  `docx_styles.py` (スタイル名から ID を引く。誌のテンプレートのスタイル ID は Word の言語版によって `a0` / `1` のような自動 ID に
+  なるので、後処理は ID を決め打ちしない) /
+  `svg_raster.py` (要求 dpi を満たす SVG → PNG) /
+  `ooxml_svg.py` (docx と pptx に共通の SVG ネイティブ埋め込み) /
+  `svg_pptx.py` (1 図 = 1 pptx の生成) /
+  `svg_safe.py` (pptx に埋め込む SVG の CSS を各要素へ書き出す)。
+- `main/00_setup/lib/` はディレクトリ名が数字で始まりパッケージとして import できないので、呼び出し側が
+  `sys.path` に足してから `import journal_profile` する。
+
+### 2.1 図の前処理 (main/step01_figures/)
+
+- **入力**: `<入力ルート>/figs/` の `*.svg` / `*.pdf` / ラスタ図、`figs/mermaid/*.mmd`
+- **出力**: `data/step01_figures/figs/` (補正した SVG / PDF 由来の SVG / `*.svg.png`)。**原稿の相対パス
+  (`figs/…`・`figs/mermaid/…`) をそのまま再現する**。pandoc には `--resource-path=data/step01_figures:<入力ルート>/figs:.` を
+  渡し、相対パス全体を連結して解決させる (ファイル名だけで突き合わせると、図が見つからずに黙って本文から落ちる)。
+- **処理**:
+  0. **Mermaid**: `.mmd` を mermaid コンテナで svg / pdf にし、以降の図に合流させる。入力の `figs/mermaid/` に同じ名前の
+     `.svg` / `.pdf` (単独で描いた残骸) があれば読み飛ばして警告する (作り直した図を古い図で上書きしないため)。
+  1. **SVG の文字の切り取りの補正**: R / svglite 由来の `textLength` / `clip-path` を librsvg が誤って描く問題を補正する (冪等)。
+  2. **PDF → SVG** (`pdf2svg`)。**変換の直後に SVG ルートの `width` / `height` に `pt` を付ける**。pdf2svg は MediaBox (pt) を
+     単位なしの数値で書くため、SVG の規約どおり CSS px と読むと図の公称サイズが 75% になり、300 dpi の保証が PDF 由来の図で
+     崩れる。`viewBox` は変えない (縦横比は同じなので描画は変わらない)。書き換えられなかったときは警告する。手書きの SVG の
+     単位なしは規約どおり CSS px のまま扱う。
+  3. **SVG → PNG フォールバック** (`svg_raster.py`)。
+- **公称サイズと解像度** (`svg_raster.py`。step05 の分離出力図も同じモジュールを通る):
+  - SVG ルートの `width` / `height` を公称サイズとする。物理単位 (pt / mm / cm / in) はそのまま、単位なしと px は
+    **CSS px = 1/96 inch**、`width` / `height` が無ければ `viewBox` を CSS px として読む。
+  - 公称サイズ × 要求 dpi から画素数を計算して `rsvg-convert -w/-h` に渡す (`-d/-p` の dpi は物理単位の SVG にしか効かない)。
+    換算の根拠 (元の寸法・単位・inch・画素数) をログに出す。
+  - 生成後に PNG の IHDR から実画素数を読み直し、**目標に届かなければエラーで止める**。PNG の構造 (IEND まで) を確かめてから
+    読み書きし、書き戻しは一時ファイル → `os.replace` で行う (中断しても元の PNG は壊れない)。
+  - **pHYs (物理解像度) を書く**。pHYs は px/m の整数なので 300 dpi をちょうどには表せず、四捨五入すると pandoc が 299 dpi と
+    読むため、切り上げる。
+  - SVG はルート要素の開始タグまでしか読まない (必要なのは `width` / `height` / `viewBox` だけ。巨大な SVG でも解析器の
+    安全装置を外さずに済む)。
+  - 画素数の上限 (`MAX_PIXELS` = 2 億画素) は暴走を止めるためのもので、メモリの実効上限ではない。`rsvg-convert` が途中で
+    落ちたときは、エラー文に目標の画素数・基準の寸法・dpi を書く。
+  - **寸法の決まらない SVG** (`width` / `height` も `viewBox` も無い) は、step01 (草稿のフォールバック) では警告にとどめて
+    `rsvg-convert` の既定の描画に任せ、pHYs は書かない (300 dpi の画像だと偽らない)。step05 (提出図) では止める。
+  - **自分で置いたラスタ図はこの経路を通らない** (そのまま複製する)。解像度の保証の対象外で、`check-figures.sh` が「注意」に出す。
+- **docx 上の表示寸法**: pandoc は pHYs の無い PNG を 72 dpi とみなすが、pHYs を書いた PNG は SVG の公称サイズどおりに置かれる。
+  物理単位で書いた図はその実寸になるので、見た目を変えたいときは原稿で `{width=...}` を付ける。本文幅を超える図は pandoc が
+  本文幅に縮める (本文幅を整数の pt に切り捨てた値が上限になる。実測で、A4・余白 25 mm では 453 pt = 159.81 mm)。
+  段組の誌では、段の幅を超える段の図を後処理がさらに段の幅に縮める (§2.2 の `layout.py`)。
+- **冪等性**: `figures.sh` を回し直しても SVG / PNG は同じものになる (Mermaid 由来の PDF だけは毎回変わる)。
+- **出所の記録**: `figures.sh` は前処理の前と最後に入力ルートと `figs/` の SHA-256 を取り、違わなければ作った図の各ファイルの
+  SHA-256 とあわせて `data/step01_figures/.figures.source` に書く (提出用の package が照合する。§2.5)。
+- **Word / PowerPoint で崩れる SVG の検出** (`check_dpi.py`。`check-figures.sh` の図ツリーのモード): svglite の出力の連結
+  (`<g class='svglite'>` が 2 個以上)・`id` の重複・`hsl()` の色を「注意」として出す。確かめていない条件は検出しない。
+
+### 2.2 原稿のビルド (main/step02_build/)
+
+- **入力**: `<入力ルート>/main.md` / `ref.bib` / `data/step01_figures/` / 雑誌プロファイル。`revise-report.md` と
+  `cover-letter.md` があれば同じ仕組みで docx にする。
+- **pandoc の呼び出し** (考え方):
+  ```
+  pandoc <入力ルート>/main.md \
+    --from markdown+east_asian_line_breaks --to docx \
+    --defaults=main/00_setup/defaults.yaml [--defaults=<誌の crossref の metadata>] \
+    --reference-doc=<誌の reference.docx> \
+    --resource-path=data/step01_figures:<入力ルート>/figs:. \
+    --filter pandoc-crossref \
+    --lua-filter main/00_setup/filters/generic-style.lua \
+    --citeproc --bibliography=<入力ルート>/ref.bib --csl=<誌の CSL> \
+    [--lua-filter main/00_setup/filters/unnumbered-style.lua] \
+    [--lua-filter main/00_setup/filters/wide-blocks.lua] \
+    --output=data/step02_build/main.docx
+  ```
+- **reference.docx と CSL の解決** (`build_docx.py`): `profile.yaml` の `reference_doc` / `csl` が指すファイルがあればそれを、
+  無ければ `_default` のものを使う。継承したときは必ず警告する (CSL は「AMA 11th を継承します」、reference.docx は継承した
+  体裁と、`profile.yaml` の体裁キーで食い違うもの)。自前の reference.docx があるときは、その体裁が `profile.yaml` と
+  一致するかを検算し、食い違えば `make-reference.sh` の再実行を促す (テンプレートを雛形にする誌では、`profile.yaml` に書いた
+  キーだけを比べる。改版の検知)。
+- **reference.docx の自動生成** (`scripts/lib/ensure-reference.sh`。`build.sh` / `diff.sh` が使う): `_default` の
+  reference.docx と、`reference_doc: reference.docx` の誌の reference.docx が無ければ、`make-reference.sh` で作ってから
+  ビルドする。`reference_doc` が別の名前 (雑誌が配るテンプレートをそのまま使う) を指していて無いときは作らない (人が置くファイルを
+  作り物で置き換えない)。テンプレートを雛形にする誌 (`reference_base`) では、生成の元 (テンプレート・`profile.yaml`・生成処理) か
+  生成物が前に作ったときの記録 (`.reference.source`) と違えば作り直し、テンプレートが無ければ取得元 (`reference_base_url`) を出して
+  止まり、テンプレートの SHA-256 が `reference_base_sha256` と違えば止まる (§3)。作ったときの警告 (`.reference.warnings`) は、
+  作り直さずに使うときも build・diff のたびに標準エラーへ出し直す (改版で外れた後処理を見落とさないため)。
+- **後処理** (Python + lxml。`postprocess.py`。build と diff が同じ `process_docx` を通る):
+  - 表に三本線 (booktabs) の罫線を付ける (`.grid` Div の中は全罫線)。
+  - **SVG のネイティブ埋め込み** (`ooxml_svg.py`): `a:blip > a:extLst > a:ext uri="{96DAC541-…}" > asvg:svgBlip r:embed` を
+    入れ、`word/media/*.svg` を同梱し、`[Content_Types].xml` に `image/svg+xml` を登録する。図の対応は画像のマニフェスト
+    (出現順・キャプション・テキストボックス内かどうか) で取り、件数と順序を検算する (位置の一致だけに頼らない)。
+  - `.textbox` Div を `wp:anchor` のテキストボックスにし、`page` 属性の位置へ置く。
+  - `line_numbers_scope: manuscript` の誌では、`main.md` 以外の docx の節設定から行番号 (`w:lnNumType`) を外す。
+  - **プロファイルのキーで発火する後処理** (キーの無い誌では呼ばれない。誌の id では分けない):
+    - `frontmatter.py` — 柱の中央を running title (`header.running_title_from` の段落の文字) にし、左右のテンプレートの表示を
+      消す (`header.clear_template_labels`)。所属の段落の先頭の上付きの番号の直後にタブを入れる (`title_page.affiliation_label_tab`)。
+      著者 (`Author`) の段落の中の脚注 (異動後の新住所) の参照と番号を記号 `*` `**` にする (`title_page.author_footnote_marks`。
+      Word の記号の脚注 = `w:customMarkFollows`。文面の同じ脚注は 1 つにまとめる。ほかの脚注は数字のまま)。本文以外の文書
+      (回答書・カバーレター) の見出しの自動番号を外す (`headings.numbered_scope: manuscript`)。
+    - `layout.py` — `layout.columns` が 2 以上なら、表題部 (`title_block_until` のスタイルの段落まで) を 1 段組の節にし
+      (`title_page_break` なら改ページして表題ページを独立させる)、本文を reference.docx の本文の節の写しの段組の節にする。
+      段抜き (`{.wide}` / `::: wide`) の図表は 1 段組の節で挟む。段の幅を超える `wp:inline` の図は縮めて警告し、段に収まらない
+      見込みの表も警告する。カバーレター・回答書は `layout.scope` で 1 段組のまま。行番号の除去 (`line_numbers_scope`) は節の
+      組み立ての後に掛ける。表題部の節が 2 段組以上の雛形でも 1 段組に直して警告する。
+    - `captions.py` — 図 → 題 → 凡例を keepNext でつなぐ (`figures.keep_together`)。表の直後の凡例を題と表の間へ移す
+      (`tables.legend_position: above`。`tables.placement` の `end` / `separate` とは併用できず、build と package が止まる)。
+    - `equations.py` — pandoc-crossref が番号を付けた別行立ての式を「`m:oMath` TAB `(N)`」の段落にし、`equations.style` の
+      段落スタイルにする (式番号がスタイルの右タブで段の右端に寄る)。段抜きの節ではタブを本文幅に置き直す。タブの基準の段の幅は
+      reference.docx の本文の節から取るので、段組の節を組み立てない回答書・カバーレターでも番号は本文幅の右端に寄る。
+    - `postprocess.bibliography_label_tab_only` — `bibliography.label_separator: tab` なら、文献の段落の「番号 空白 TAB 本文」の
+      空白を消す (pandoc は番号の後に空白とタブを書くので、番号が 2 桁になると番号 + 空白がぶら下げ字下げを越え、本文の頭が次の
+      タブ位置へ飛ぶ)。
+  - **出力のスタイルの欠けの警告** (`postprocess.check_output_styles`。どの誌でも build と diff のたびに): スタイルの基
+    (`basedOn` / `next` / `link`) が未定義のスタイルを指す・本文の段落が未定義の段落スタイルを指す・(`headings.unnumbered_style` を
+    持つ誌の、見出しの番号を残す文書で) 使っている見出し 1〜3 の段落スタイルに自動番号が無い、を警告する (止めない)。
+    テンプレートの改版でスタイルが消えた・名前が変わったことを、作り直さずに使う build でも知らせるため。
+- **出力**: `data/step02_build/*.docx` と、どの誌・どの原稿でビルドしたかの記録 `data/step02_build/.journal` /
+  `.build.source` (入力ルート・`main.md` と原稿のほかの入力の SHA-256・`main.docx` の SHA-256・誌プロファイルと build が使った
+  `reference.docx` の SHA-256。package と roundtrip が照合する。§2.5)。入力に無い任意の文書 (revise-report / cover-letter) の
+  前回の docx は消す (入力ルートを切り替えたときに別の原稿の docx が残らないように)。
+
+### 2.3 全領域差分 (main/step03_diff/)
+
+詳しい設計は [`docs/design-fullarea-diff.md`](design-fullarea-diff.md)。
+
+- **入力**: 2 つの版の `main.md` (git の revision か、明示した 2 ファイル)。図は新版の図ツリー、文献は新版の `ref.bib` で解決する。
+- **方式**: 構造保持 AST 差分 (latexdiff の発想を pandoc の AST の上で行う)。
+  1. 旧版・新版をそれぞれ `pandoc -t json` で AST にする。
+  2. **図表と式のラベルの付け替え**: 旧版にだけあるラベルと新版にだけあるラベルを、同じ図表・式を書き換えたものとみなせるとき
+     (表は題の語とセルの語がどちらも似ている・図は画像のパスか題が同じ・式は TeX が同じか記号が似ている) だけ組にし、旧版のラベルと
+     参照を新版の名前に直してから差分を取る (変えていない文の参照を壊さないため)。最上位の `::: wide` の Div は、旧版の付け方を
+     新版に合わせる (既存の表を囲んだだけで表がまるごと削除 + 追加にならないように)。
+  3. **二層の差分** (Python + panflute): ブロック列を LCS で整列し (`Div` / 表 / リストには再帰する)、残った削除と追加を
+     類似度で突き合わせて「変更」の組にし、組になった段落の中を語単位で差分にする (大文字小文字だけの変更も差分になる)。
+     変わった語を `Span` (`.diff-add` / `.diff-del`) で包み、引用・相互参照・数式は要素のまま温存する。表は行を整列し、セルの位置で
+     突き合わせてセルの中に再帰する。番号つきの式を書き換えたときは、旧の式 (削除・番号なし) と新の式 (追加・番号つき) の 2 段落にする。
+  4. マージした AST を build と同じ引数 (reference.docx / CSL / defaults.yaml と誌の crossref / フィルタ) で docx にし、
+     `color-diff.lua` で span を文字スタイルに写す。
+  5. 後処理は build と同じ (段組・柱・図表の題・式番号も掛かる)。加えて `word/styles.xml` に `DiffAdd` (青 `#2E74B5`) /
+     `DiffDel` (赤 `#C00000` + 取り消し線) を**毎回入れる** (雑誌が配るテンプレートがこの 2 スタイルを持たなくても色が出るように。
+     定義が無いと黙って無着色になる)。**数式とリンクと脚注**は文字スタイルが届かない (pandoc の docx の書き出しは数式に文字スタイルを
+     掛けず、リンクには `Hyperlink` を掛ける) ので、`color-diff.lua` が付けた目印の範囲を `diff_docx.py` が直に塗る (脚注は参照の記号と
+     脚注の本文。式番号 `(N)` にも色が付く)。
+- **全領域**: `custom-style` Div で書いたタイトル・著者・所属・抄録・キーワードも温存され、中身が差分になる。表とテキストボックスの
+  中の表のセルも差分になり、色は run のプロパティなのでテキストボックスの中にも運ばれる。
+- **受入テスト** (`scripts/check-diff.sh` → `main/step03_diff/test_diff_engine.py`): 旧版と新版の対
+  (`data/dummy/regression/diff/` の 10 対) を実際の経路で差分 docx にし、削除・追加の色の位置と文字、番号と参照に `¿` と `{#…}` が
+  残らないこと、目印のブックマークが残らないこと、脚注の色などの性質を照合する (`_default` と、学会テンプレートがあれば `abe` で
+  110 項目)。回帰スナップショットの差分の段は旧版と新版が同じ原稿なので、差分エンジンの変化はこちらで確かめる。
+- **既知の制限**: 段落・文の移動は削除 + 追加になる。結合セルを含む表の整列は曖昧になりうる。削除した引用も温存されるので、
+  番号順の引用様式では差分版の引用番号が旧版とも新版とも一致しないことがある。文献リストと相互参照番号は再生成される。
+  コードブロック・生 OOXML・水平線の変更は着色せず新旧を併記する。見出しレベルだけの変更は全削除 + 全追加になる。表の列の増減では
+  後ろの列がずれうる。削除した図は画像を描かず、キャプション (赤) だけを残す。語の間に空白の無い言語の本文は、句ごとの削除 + 追加に
+  なりうる。**消した図表・式を参照する消した文の参照は `¿…?` になる** (同じとみなせない差し替え — 画像もラベルも変えて題も違う図・
+  ラベルを変えて記号の大きく違う式・題が似ていても中身の違う表 — も同じ)。`wide` の透過は最上位のクラスだけの Div に限る。
+
+### 2.4 PDF の生成 (main/step04_pdf/ — roundtrip)
+
+配置・診断・既知の制限は [`docs/roundtrip-windows-watcher.md`](roundtrip-windows-watcher.md)。
+
+1. ビルドの成果 (`data/step02_build/*.docx` / `data/step03_diff/*.docx`) を `data/output/` に集める。古い docx を消すのは
+   `data/output/*.docx` (直下) だけで、step05 が書く `data/output/<id>/` には触れない。
+2. 送出先の `.watcher-alive` で watcher の生存を確かめ (止まっていれば警告。中止はしない。起動ごとの生存記録
+   `.watcher-alive-<識別子>` が 2 個以上なら、watcher が複数動いていると警告する)。送出先の直下に同じ名前の docx が
+   残っていれば (前回の変換がまだ終わっていない) push しない。前回の PDF を送出先の `__archives/` へ退避し
+   (**退避できなければ中止**)、push を始めた時刻を記録してから docx を rclone で送る。待つ段は、名前が一致し、かつ
+   **push を始めた時刻より後に書かれた** PDF だけを今回の成果として取り込む (退避と時刻の 2 重の守りで、古い PDF を
+   持ち帰らない)。
+3. Windows の watcher (`main/step04_pdf/windows/watch-and-convert.ps1`) が Word COM で PDF にし、**送出先の直下
+   (docx の隣)** に書く (docx は `processed/`、失敗は `error/` へ移す)。
+4. 待つ PDF (`data/output/*.docx` の名前から決まる) が**全部揃うまで**待ち (既定 10 分・10 秒間隔)、`data/products/` へ取り込む。
+5. **提出パッケージの配送**: `SUBMISSION.md` を持つ `data/output/<id>/` (既定は全部。`--package <id>` で絞り、`--no-package` で
+   使わない) を、送出先の `submission-<id>/` に置く。表と図は 1 階層に並べ、`rclone sync` で中身を一致させ、消えた・置き換わった
+   ファイルは `__archives/submission-<id>_<時刻>/` へ退避し、手元の写し `data/products/submission-<id>/` と `rclone check` で
+   照合する。手順 1 ではパッケージの本文と表も `<id>-manuscript.docx` / `<id>-Table1.docx` … の名前で集めて PDF 化に回す
+   (集めるのは写しで、パッケージは動かさない)。パッケージの `.upload-as-pdf` (package が書く隠しファイル。原稿本体を PDF で上げる誌の
+   `manuscript.docx` と、`submission.collect_forms` の誌の `forms/*.docx`) に載った docx は `<id>-manuscript.docx` /
+   `<id>-forms-<名前>.docx` の名前で Word に回し、届いた PDF を `submission-<id>/` の同じ場所に `manuscript.pdf` / `forms/<名前>.pdf` で
+   置く (同じ名前の PDF を `forms/` に置いた書式は、その PDF をそのまま使い docx は Word に回さない)。**本文と書式を 1 本の PDF に
+   結合する処理は持たない**。
+   次のときは**何も送らずに止める**: パッケージが草稿モードで作られている・パッケージより新しい原稿 / ビルド / 差分 docx / 誌の
+   プロファイルがある・`SUBMISSION.md` に書いた入力ルート・原稿・誌プロファイル・`reference.docx` の SHA-256 が今のものと違う
+   (または書かれていない)・`--package` で `SUBMISSION.md` の無いパッケージを指定した・`--skip-push` で再開したのに PDF にした docx と
+   今のパッケージが違う・`--skip-push` で再開したのにその送出先に push した記録 (時刻) が無い (か送出先が違う)。配送の前にも、
+   PDF 化に回したときのパッケージの全ファイルの SHA-256 と今のパッケージを照合し、待つ間に package を回し直して変わっていれば止める
+   (Word の PDF で確かめていない版を届けないため)。watcher は送出先の直下の docx しか見ないので、サブフォルダは変換されない。
+
+- **送出先** `gdrive:tmp/<リポジトリのディレクトリ名>` の算出は `scripts/lib/gdrive-dest.sh` だけが持ち、`roundtrip.sh` /
+  `push-win-tools.sh` / `check-pdf-path.sh` が共有する (送出先のずれはビルドの成否に現れず、「PDF が返らない」という形でしか
+  分からないため)。
+- **watcher の作り**: docx を `%TEMP%` の作業フォルダにコピーして変換し (Google Drive の同期のロックから切り離す)、変換は
+  **子プロセス**に出して **1 ファイル 120 秒で打ち切る**。打ち切るときに止めるのは**その変換が起動した WINWORD だけ**
+  (起動の前後の WINWORD の一覧の差から PID と起動時刻を記録し、特定できなければ止めない)。待つ間も `.watcher-alive` を
+  更新し、2 行目以降に実行中の watcher の版 (MD5) と設定を書く (`check-pdf-path.sh` と `roundtrip.sh` が読み、再起動忘れと
+  試験用の起動のままの放置を知らせる)。docx は普通に開き、開けなかったときだけ修復して開く (修復したら `REPAIRED:` で知らせる)。
+  1 ファイルで何が起きても watcher は止まらない。
+
+### 2.5 投稿パッケージ (main/step05_package/)
+
+- **入力**: ビルド済みの docx (`data/step02_build/`)、差分 docx (`data/step03_diff/`。任意)、図 (`data/step01_figures/`)、
+  雑誌プロファイル、`<入力ルート>/supplementary/` と `<入力ルート>/forms/` (任意)。
+- **処理**: `scripts/package.sh` (ホスト) → `package.py` (コンテナ)。Inkscape が要る変換 (pdf 化・アウトライン化) は
+  `package.py figure-plan` が必要な変換を TSV で列挙し、`package.sh` が svg-conversion コンテナで回す。
+- **モード**: `profile.figures.embed` で決まる (`true` → 草稿 / `false` → 最終)。`--mode` で上書きできる。
+  「提出用か」(`--mode final` かつ `--keep-figures` なし) と「図を本文から外すか」(`figures.separate`) は別に決まる。
+  - **草稿 (draft)**: 図を埋め込んだ `main.docx` をそのまま `manuscript.docx` にする。
+  - **最終 (final)・図を外す誌** (`figures.separate: true`。既定): 本文の inline の図 (`wp:inline`) を除いて `[Figure N about here]` に
+    置き換え、図を `figures/` に分離して出す。テキストボックス (`wp:anchor`) の中は図として扱わず残す。提出構成の組み替え (下) も行う。
+  - **最終 (final)・図を外さない誌** (`figures.separate: false`。ABE): `main.docx` をそのまま `manuscript.docx` にする (図を外さない・
+    組み替えない・図の形式を解決しない・`figures/` と `CAPTIONS.md` を作らない)。**提出用としての扱いは図を外す誌の final と同じ**
+    (出所の照合で止まる・`SUBMISSION.md` に「提出用ではない」を書かない・roundtrip が配送する)。図を本文に埋め込んだまま提出する誌は
+    提出物の体裁がすべて build で決まるので、提出用の扱いと図の分離を同じスイッチにしない。`tables.placement` の `end` / `separate`・
+    `figures.legends_section` とは併用できない (`journal_profile.figures_separate()` が profile を読むときに止める)。
+- **出力**: `data/output/<id>/` に `manuscript.docx` / `figures/` (図を外す誌) / `revise-report.docx` / `cover-letter.docx`
+  (+ 差分があれば `manuscript-diff.docx`、`supplementary/`、`forms/`、`SUBMISSION.md`)。`tables.placement: separate` の誌は
+  `tables/TableN.docx`、`SUBMISSION.md` を書き図を外す誌は `CAPTIONS.md` も出る (下の「提出構成の組み替え」「提出マニフェスト」)。毎回作り直す。
+- **build したときの誌・プロファイル・雛形の照合**: `build.sh` は `.build.source` に誌プロファイルと build が使った `reference.docx` の
+  SHA-256 を記録する。提出用の package は、build したときの誌が `--journal` と違う・`profile.yaml` か `reference.docx` が build のときと違う・
+  記録の行が無い古い記録・テンプレートから作る `reference.docx` の生成の記録が今のファイルと合わない、のどれでも前のパッケージを消す前に
+  止まる (草稿と `--keep-figures` は注意だけ)。`--journal` の付け忘れ (build の既定は `_default`) で 1 段組の本文が提出用になるのを防ぐため。
+
+#### 図の生成経路
+
+図を外す誌の主形式は `figures.formats` の先頭 (`--format` で上書き)。
+
+| 形式 | 作り方 |
+|------|-------|
+| `pdf` | Mermaid 以外の SVG を svg-conversion で PDF にする (`font_handling: outline` で文字をアウトライン化 / `embed` で埋め込み)。Mermaid 図は mermaid コンテナが作った PDF を使う |
+| `png` | `svg_raster.py` が `figures.dpi` (または `--dpi`) を満たす画素数で作り、pHYs を書く (§2.1 と同じ換算) |
+| `pptx` | 1 図 = 1 pptx = 1 スライド (下の「pptx の経路」) |
+
+- `eps` → pdf / `tiff` → png は警告つきで代わりに作る。TIFF をそのまま作る経路は持たない (pandoc コンテナに画像ライブラリが
+  無く、足すと全ビルドが使うイメージが重くなるため。PNG を受け付ける誌では PNG で要件を満たせる)。`jpeg` は作らない
+  (線画を非可逆圧縮で劣化させるため。指定すると止まる)。
+- 作れない形式 (綴りの誤りを含む) は**ほかの形式に代えずに止める**。代わりの形式が `submission.figure_formats` に無い誌でも止める。
+  受入形式外の形式を明示したときは `--allow-disallowed-format` を要求する。判定は図を実際に出す直前 (最終モードで
+  `--keep-figures` でないとき) に行う。
+- 自分で置いたラスタ図は原寸で複製し、その解像度 (実画素数と pHYs) を毎回表示する。
+
+#### pptx の経路と案 A / 案 B / 案 B′
+
+図の受入形式が JPEG / TIF / PNG / PowerPoint のような誌では、ベクターを保てるのは PowerPoint だけなので、SVG を一次ソースに
+保ったまま pptx を作る経路を持つ。本テンプレートは pptx の作り方を 3 つの名前で呼び分ける
+(`figures.pptx.mode` の値・ログ・`SUBMISSION.md` の注意にこの名前で出る):
+
+| 呼び名 | `figures.pptx.mode` | 中身 | 状態 |
+|-------|---------------------|------|------|
+| **案 A** | `passthrough` (`svg-blob` でも図の隣に同名の `.pptx` があればこちらになる) | 執筆者が PowerPoint で仕上げた `.pptx` を**無変換でコピー**する。劣化が無い。1 スライドであることとマクロが無いことを機械で確かめる。中身はテンプレートの検査の対象外 | 実装済み |
+| **案 B** | `svg-blob` (既定) | SVG から 1 スライドの pptx を生成し、**SVG をネイティブで埋め込み + PNG フォールバック**を同梱する | 実装済み |
+| **案 B′** | `native-shapes` | SVG を PowerPoint のネイティブの図形 (編集できるシェイプ) に変換する | **作っていない**。変換の品質が安定しないため。指定すると止まる (黙って案 B にすると「編集できるシェイプ」の要求に応えたことにならないため) |
+
+- **SVG のネイティブ埋め込みは docx と pptx で同じ仕組み**なので、`ooxml_svg.py` を両方が使う (`p:pic/p:blipFill/a:blip` の下に
+  同じ拡張を入れる)。
+- 骨格は `pandoc --print-default-data-file reference.pptx` をコンテナの中で取り出して加工する (追加の依存なし。同梱もしない)。
+  1 スライドに間引き、レイアウトは Blank を指す。`docProps/core.xml` / `app.xml` は中立な内容で書き直し、zip の項目の時刻と
+  書き出し順を固定するので、同じ入力なら同じバイト列になる。
+- **スライドの寸法は図の公称サイズに合わせる** (`slide_fit: figure`)。PowerPoint の規格 (1〜56 inch) の下限を割る軸は
+  スライドを 1 inch に広げて図を中央に置き (足した余白は警告)、上限を超えると止めて `--slide-fit fixed` (既定の寸法に
+  縮めて置く) を案内する。スライドを図に合わせても、SVG の `viewBox` の中の余白は残る (余白の切り詰めは作図の側で行う)。
+- PNG フォールバックは**実際に置く寸法**でラスタ化する (`fixed` で縮めて置くときは、その寸法の画素数になる)。
+  Office 2016 以前と多くのビューアではこの PNG が表示されるので、保険ではなく受け手が実際に見る品質として要求 dpi を満たす。
+- `figures.pptx.text_to_path: true` のときだけ、埋め込む SVG の文字をアウトライン化する (svg-conversion の `--outline-svg`)。
+  既定は `false` — 組版で組み直す誌では文字を図形にすると直せなくなるため。投稿系が査読用の PDF を作るときにどの描画系で
+  図を描くかが公開されていない誌では、受け側の書体と文字の描き方に左右されないよう `true` にする。
+- `figures.pptx.inline_css: true` のときは、埋め込む SVG の CSS を各要素の `style` へ書き出して `<style>` を外す
+  (`main/00_setup/lib/svg_safe.py`)。SVG の CSS を適用しない描画系 (例: Aspose.Slides) は塗りの指定の無い図形を既定の黒で塗るため
+  (R の svglite の図では、中身の上に描くパネルの枠がパネルを隠す)。CSS の詳細度・記述順・`!important` に従って書き出す。
+  扱うのは svglite・Mermaid の経路・matplotlib が書く CSS (子の結合子 `>`・属性の各種の一致・ルートで定義した CSS の変数を含む) で、
+  それ以外の形は止める (Mermaid では、文字を HTML で出す journey 図が止まる。止まったら、その図だけ案 A にするか `--format png`)。
+  あわせて、幅か高さの無い `<rect>` を取り除き、`rgba()` / `hsl()` と `grey` 系の色名を 16 進の色 (と不透明度) に、奇数個の値の
+  `stroke-dasharray` を偶数個に、合計 0 の `stroke-dasharray` を `none` に直し、線の無い図形の `opacity` を `fill-opacity` に掛け合わせ、
+  要素の `style` に残った `!important` を外す (どれも CSS を読む描画系では同じ見た目)。書き換えの前後を Chromium で描くと画素が一致する
+  ことを確かめている。`text_to_path` と併用すると、`figure-plan` が書き出した `data/step05_package/<図>.safe.svg` を輪郭化する
+  (先に輪郭化すると、Inkscape が CSS を残すので文字の描かれ方が崩れる)。輪郭化した SVG に `<style>` が残っていれば止まる。
+  案 A の pptx には掛からない。
+- **元がラスタの図は pptx に包まず、画像ファイルのまま出す** (包んでも拡大に強くはならない)。
+- Microsoft 365 の PowerPoint で SVG 側が描画され、文字を輪郭化しない設定ではグループ化を解除すると文字を編集できることを確かめている。
+  投稿系が査読用の PDF を作るときにどちらを描くかは誌によって分からない (上の `inline_css` と `text_to_path` は、どの描画系で描かれても
+  崩れないための設定)。PNG 側が描画される環境 (買い切り版の Office 2016) での見え方は確かめていない。
+
+#### 提出構成の組み替え (`relocate.py`)
+
+原稿は図表を本文中の自然な位置に書いたまま雑誌に依存させず、「表は末尾 (または別ファイル)」「図の題と凡例は References の後」
+という誌の要求は**提出物を作る段**で満たす。最終モード (`--mode final` かつ `--keep-figures` なし) で、図を外す誌
+(`figures.separate: true`) でだけ動き、何をするかは次の 2 キーで決まる。
+
+- `tables.placement: end` — 本文の `w:tbl` を「題 (`TableCaption`) + 表 + **直後に連続する `Legend` 段落すべて**」の 1 組として
+  文書の末尾へ移し、元の位置に `[Table N about here]` を入れる。題の無い表は `[Untitled table about here]` にして警告する。
+  前に置く見出しは `tables.section_title` で選ぶ (既定は見出しなし・改ページだけ)。
+- `tables.placement: separate` — 同じ 1 組を本文から外し (元の位置のプレースホルダは `end` と同じ)、`package.py` の
+  `write_table_files()` が `tables/TableN.docx` に **1 表 1 ファイル**で書く。表のファイルは、組み替えた本文の書庫を複製して
+  `w:body` をその組と元の `w:sectPr` だけにしたものなので、スタイル・番号・フッタを本文と共有する (別の reference.docx から
+  組み立て直すと、本文と表で体裁がずれうる)。題は表の上、凡例は表の下。行番号は `line_numbers_scope: manuscript` なら外す。
+  表の体裁の検査は表のファイルにも掛ける。本文の流れに表は残らない (テキストボックスの中の表は動かさない)。
+  `tables.placement` の値は `inline` / `end` / `separate` のどれかで、それ以外の綴りは**止める**
+  (`relocate.table_placement()`。綴りの誤りで表が本文に残ったまま、警告なしに提出物ができるのを防ぐ)。
+- `figures.legends_section: <見出し>` — 「`ImageCaption` (題) + **直後に連続する `Legend` 段落すべて**」を本文から抜き、
+  改ページつきの見出し (`Heading1`) の下へ集める。画像の段落は動かさない (`[Figure N about here]` が本文の元の位置に残る)。
+- **挿入は常に `w:sectPr` の直前**。`w:sectPr` は `w:body` の最後の子でなければならず、後ろに要素があると Word が修復を
+  促す。抜いては入れる操作なので、位置は添字ではなく要素を基準にし、最後に「body の最後の子が sectPr か」を検算する。
+- 順序は References → Figure Legends → 表 (`separate` では表が本文に来ない)。References が本文の最後の節なら、sectPr の直前に
+  入れれば「References の後」になる (規定チェックが「References が最後の節か」を見る)。
+- **`w:body` の直接の子だけ**を見るので、テキストボックスの中身 (`w:txbxContent` の下) は構造的に対象外になる。
+- **ブックマークは動かさない**。pandoc-crossref は図表の前後にブックマークを置き、本文の "Fig. 1" / "Table 1" はそこへの
+  ハイパーリンクなので、段落と表だけを抜けば相互参照はプレースホルダの位置に着地する。
+- **`end` で連続する `w:tbl` の間には段落を挟む** (Word は続いた 2 表を 1 つに結合する)。
+- **番号の検算**: キャプションの番号が 1..n の連番か、題の無い画像が途中に紛れていないか (紛れていると、その後ろの図ファイルが
+  すべて凡例とずれる) を確かめ、`figures/` の件数と集めた題の件数の食い違いも警告する。
+- **表の体裁の検査** (`tables.allow_color: false` の誌): 網掛け (`w:shd`。テーマ色だけの網掛けも)・文字色・蛍光ペン・罫線の色を
+  検出して警告する。草稿モードでも読み取りだけで掛ける。走査は最も外側の表から行う。
+
+#### 規定チェック (`validate.py`)
+
+Markdown の層で原稿を読み、上限と執筆の検査を掛ける。結果は「規定違反の可能性 (要修正)」と「参考情報」に分け、
+**エラーにはしない** (終了コードは常に 0)。`validate()` はファイルに触れないので、成果物は変わらない。
+
+- **本文語数の数え方**: 本文の節の段落の文章だけを数える。
+  表題ページと凡例の `custom-style` Div (Title / Author / Affiliation / Corresponding / Keywords / Abstract / Legend) の中身、
+  References 節・`#refs` Div・表の行・キャプションの行は、本文の節の文章として扱わない。
+  `declarations.abbreviations_section: true` の誌では `# Abbreviations` 節も同じ扱いにする。
+  図表の凡例 (`Legend`) の語数は、図 / 表に分けて別に出す。ただし直前に図表が無い凡例 (配置の誤り) は、提出物でも本文に残るので
+  本文語数に入る。抄録の語数は英数字を含む語の数と空白区切りの語の数の両方を出し、上限の判定は大きいほうで行う
+  (前者だけだと統計の文で少なく出るため)。
+- **ブロック走査層**: 位置関係を見る検査が多いので、原稿を文書順のブロック列にならす層を置いた。`.textbox` / `.grid` / `#refs` の
+  中には入り、`custom-style` Div の中には入らない。テキストボックスの中のブロックには印を付けて図表の点数に数えない
+  (数えなかった点数は概算行に必ず出し、`limits.figures_tables` を持つ誌では要修正にする)。表のキャプション行は隣の表に畳む
+  (pandoc はキャプションを表の前にも後にも書けるため)。
+- **凡例 Div の検査**: 対応関係は「対象の直後に置く」という位置だけで表し、`for` 属性は docx に出ない。そこで Markdown の層で
+  位置と `for` を突き合わせる (直前が図表でない / `for` が実在しない識別子を指す / `for` が直前の図表と食い違う / `for` が無い)。
+  **中身が段落だけか**も見る — 箇条書き・番号つきリスト (`(A)` / `a.` / `IV.` などの形も)・表 (pipe / simple / grid)・画像の段落・
+  見出し・引用・入れ子の Div・コードブロック (フェンス / 空白 4 個以上の字下げ)・定義リスト・水平線を入れると、docx で `Legend` の外の
+  段落・表・図になって集約がそこで止まるため (行ブロックと脚注の定義は `Legend` 段落のまま並ぶので指摘しない)。判定は pandoc の読み方に
+  合わせ、新しいブロックが始まりうる位置 (凡例の 1 行目と空行の直後) だけを見る。
+- **表題ページと節の検査** (キーで有効になる。ABE が使う): 表題ページの Div (`lint.front_matter_divs`) がちょうど 1 つずつあるか
+  (無い・重なると表題ページの検査が黙って空振りするため) / 著者の姓がすべて大文字か (強制改行と改行でも著者を割り、`Jr.` / `II` などは
+  名前の一部とし、学位・敬称は姓の判定から除いて参考で知らせる) / キーワードが題の語を繰り返していないか (冠詞・前置詞などを除き、
+  ハイフンの接頭辞と不規則な複数形も同一視する) / running title の要否と字数 / 抄録の段落数と見出しつきの構造化の形 / 必須の節
+  (`sections.required`。いちばん浅い段の見出しで探し、`sections.aliases` の言い換えと大文字小文字・語末の s・`&` と `and` の違いを
+  同一視する。照合は語の境界での一致) / 題の無い図表 / 表の題の属性の文字。参考情報: 所属の上付きの番号・題の略語とシリーズ番号・
+  図表の題の大文字・略語の定義・利益相反の定型文・倫理の節・AI ツールの開示と資金の置き場所・引けない文献 (`ref.bib` の型と `note`
+  から推し量る)・補足資料のアーカイブ。語から推し量る検査は、確かでないものを参考情報に置く。
+- **記入欄 `<<...>>` の残り**: pandoc は `<Given-name Family-name>` のような中身を HTML のタグとみなして捨て、docx には `<>` だけが
+  残るので、Markdown の層で捕まえるしかない。`main.md` / `cover-letter.md` / `revise-report.md` を読み、改行をまたぐ記入欄も拾う。
+- **数値の桁区切りカンマ**: コメント・コード・URL・References を除き、`1,234` の形の数値を本文と表の両方で拾う
+  (表の体裁は docx の層、数値の書き方は Markdown の層、と分けている)。
+- **指摘の行番号**: 複数行の構文を同じ行数の空行に潰してから検査するので、指摘の行番号は原稿と一致する。
+- **走査層の前提**: Div の開始は `::: {…}` (波括弧つき) と書く。「References が最後の節か」は第 1 レベルの見出しだけを見る。
+- lint の既定値の置き方 (基底と誌の 2 層) は [`docs/profile-schema.md`](profile-schema.md) の「lint の 2 層構成」。
+- **回帰試験** (`main/step05_package/test_validate_abe.py`): 適合原稿・不適合原稿とその変種・補足資料の容量・`data/dummy/abe` を
+  1 か所ずつ変えた変種の件数と文面を、素の assert で 132 件照合する。
+
+#### 提出マニフェスト `SUBMISSION.md` と補足資料
+
+- `submission.text_formats` を持つ誌にだけ出す (`submission` のほかのキーだけでは出さない。中途半端なマニフェストで
+  「この誌はフォームを求めていない」のように、調べていないことが断定に化けないように)。値の無い項目は「プロファイルに記録なし
+  (規定を確認すること)」と書く。
+- 投稿系のアップロードの種類ごとにファイルの一覧・順序・形式・サイズを並べ、`submission.forms` のチェック欄を付ける。
+  図の一覧は書き出した順 (= 本文の初出順) をそのまま使う (ディレクトリを読み直すと `Figure10` が `Figure2` より前に来る)。
+  図を外さない誌の構成の行は、`sections.required` と `tables.placement` から組む。原稿本体を PDF で上げる誌
+  (`submission.text_formats: [pdf]`) は、`.upload-as-pdf` に `manuscript.docx` を載せ、roundtrip が `manuscript.pdf` を作る (§2.4)。
+- **実行時の状態と検出した問題を反映する**: 提出用でない実行では冒頭に「提出用ではない」を出し、規定チェックの指摘と、
+  この実行で出た注意をすべて転記し、規定に反するファイルの行に印を付ける。画面のログが流れた後に残る唯一のチェックリストだから。
+- **原稿の記録と照合**: どの原稿 (入力ルートと `main.md` の SHA-256) から作ったパッケージかと、誌プロファイルと `reference.docx` の
+  SHA-256 を書く。roundtrip が Drive へ届ける前と配送の前に、今のものと照合する (§2.4 の手順 5。動作例で作ったパッケージが
+  残っていても、日付だけでは見分けられないため)。組み立ての前にも、`main.docx` を build した原稿 (`build.sh` が
+  `data/step02_build/.build.source` に残す) が今回の原稿と同じかを照合し、最終モードでは食い違えば止める (「`--input` で build して
+  `--input` なしで package する」「原稿を直して build し直さない」を止めるため)。
+  照合するのは、入力ルート・`main.md`・原稿のほかの入力 (`ref.bib` / `cover-letter.md` / `revise-report.md` / `figs/`) の SHA-256 と、
+  その build が書いた `main.docx` そのものの SHA-256。原稿のほかの入力のハッシュは `package.py` の `_inputs_sha256()` だけが計算し、
+  `build.sh` もコンテナの中でそれを呼ぶ (サブコマンド `inputs-sha256`)。シンボリックリンクはリンクの先の中身を数えるが、数えるのは
+  コンテナから見えるリンク (リポジトリの中を指す相対リンク) だけで、絶対パスのリンクやリポジトリの外を指すリンクの先は数えない
+  (build もそのファイルを読めない)。`figs/` の中のディレクトリのリンクは、照合ではたどるが図の前処理はたどらないので、図はそこに置かない。
+  `figs/` のハッシュは、同じ名前の `.mmd` がある `figs/mermaid/` の `.svg` / `.pdf` (生成物の残り) と `*.svg.png` だけを除く
+  (`.mmd` の無い `figs/mermaid/` の PDF は図として変換されるので数える)。`build.sh` は入力のハッシュを build の前と後で取り、違えば
+  (build の最中に原稿や図が変わった) 記録を書かずに止まる。
+  最終モードで図を外す誌の提出物の図は図の前処理の結果 (`data/step01_figures/`) から作るので、その出所も照合する (§2.1 の
+  `.figures.source`)。最終モードの package (figure-plan と組み立ての前) が照合して、食い違えば・記録が無ければ・作った図が記録の後に
+  変わっていれば止める。図の前処理の結果が見つからない図があっても止める (飛ばすと図の欠けた提出物が終了コード 0 でできるため)。
+  `--skip-figures` の build / diff も `figures-source check` で照合して止める。
+  原稿が必ず使う 5 つの入力が、絶対パスのリンク・行き先の無いリンク・物理的にリポジトリの外にあるパス (途中のディレクトリのリンクや
+  `..` を含めて `cd -P` で判定する) なら、`build.sh` が止まる (文献の無い docx が黙ってできないように)。あわせて、ホストで見える入力が
+  コンテナからも見えるかを確かめて、見えなければ止まる (サブコマンド `inputs-visible`。途中にリポジトリの中を指す絶対パスのリンクを
+  挟む形や、絶対パスの入力ルート)。
+  `build.sh` / `diff.sh` / `package.sh` は同じ作業ツリーでの同時実行を止める (`scripts/lib/build-lock.sh`。3 つとも
+  `data/step02_build/.build.lock` を排他で取る。`flock` が無い環境では警告だけ)。
+  それでも記録と `main.docx` が別の build のものになったときは、`main.docx` の SHA-256 の照合で止まる。
+- **`CAPTIONS.md`** (図を外し、`SUBMISSION.md` を書く誌): 投稿画面には一般に、上げたファイルごとに Caption / Legend の欄がある。
+  図表の題と凡例を手で写すと本文と食い違うので、**提出するファイルそのもの** (`manuscript.docx` の Figure Legends 節と
+  `tables/*.docx`。`end` なら本文の末尾) から書式を除いて同じ文字を抜き出し、表 → 図の順に 1 ファイル 1 項目で並べる。欄は書式なしとみなし、
+  上付き・下付きは Unicode の文字に置き換え、斜体・太字は項目の下に注記する。置き換えられない上付き (`^(…)` / `_(…)` と書く)・
+  数式 (OMML の文字だけを拾う)・脚注の記号・リンクの URL は欄に入らないので ⚠ の注記を付け、組み立ての注意にも出す。
+  `SUBMISSION.md` の「アップロード種別ではないもの」の節に載せる。
+- **補足資料**: `<入力ルート>/supplementary/` を `data/output/<id>/supplementary/` へ無変換で複製する (受け取ったまま公開する誌の
+  ため)。動画は拡張子で分類し (受入形式で分類すると受入外の形式が検査から漏れる)、`limits.video_mb` (10 進) の超過と受入形式外を
+  警告する。`limits.supplementary_file_mb` / `supplementary_total_mb` を持つ誌では 1 ファイルと合計の容量を規定チェックが照合し、
+  `SUBMISSION.md` にも上限と今回の合計を書く。OS の管理用ファイルは複製せず、除いた件数を報告する。`supplementary/` がディレクトリとして
+  読めないとき、その中のリンクの先が読めないときは止まる (補足資料が黙って抜けないように。中のディレクトリのリンクもたどる)。
+- **記入済みの書式** (`submission.collect_forms: true`): `<入力ルート>/forms/` の直下の書式 (docx / PDF) を `forms/` に無変換で
+  複製し、`SUBMISSION.md` に一覧 (上げる形つき) を出す。拡張子だけを小文字にそろえて写す (roundtrip の判定とそろえる。そろえた名前が
+  重なれば止まる)。入力ルートが `src/` 以外で `<入力ルート>/forms/` が git で無視されていなければ注意を出す (`data/dummy/` の下は見ない)。
+  書式と補足資料の止まる検査 (読めないディレクトリ・リンク・名前の重なり) は、前回のパッケージ `data/output/<id>/` を消す前に行う
+  (止まっても確かめ済みのパッケージを失わないため)。
+
+---
+
+## 3. 雑誌プロファイル (data/journals/<id>/)
+
+投稿規定の違いをプロファイルに閉じ込め、`main.md` は雑誌に依存させない。
+
+```
+data/journals/<id>/
+├── profile.yaml         # 規定のパラメータ (docs/profile-schema.md)
+├── <id>.csl             # 引用様式 (無ければ _default の CSL を継承)
+├── reference.docx       # pandoc の体裁の雛形 (生成物。git で追跡しない)
+├── <テンプレート>.docx   # (任意) 雑誌が配る Word のテンプレート (reference_base に名前を書く。利用者が置く。git で追跡しない)
+├── .reference.source    # (テンプレートを雛形にする誌) 生成の記録。.reference.warnings = 生成の警告の記録
+└── skeleton/            # (任意) 誌固有の原稿骨格
+```
+
+- 同梱は `_default` (汎用の投稿フォーマット) と `abe` (*Advanced Biomedical Engineering*)。テンプレートを特定の誌の専用にしない —
+  誌固有の要件は `profile.yaml` のキーの拡張で吸収し、新しいキーはすべて省略できて、未指定なら何もしない側に倒す。後処理は
+  キーで発火させ、誌の id では分けない。
+- **reference.docx は生成物で、作り方が 2 通りある** (どちらも `data/journals/make-reference.sh <id>`。`build.sh` / `diff.sh` が無ければ作る。§2.2)。
+  - **体裁を焼き込む** (`_default` と、テンプレートを配らない誌): pandoc の既定の reference.docx をコンテナの中で取り出し、
+    `profile.yaml` の体裁 (`line_spacing` / `line_numbers` / `page_numbers` / `font` / `font_size` / `margins` / `paper_size` /
+    `text_styles.*`) を `patch_reference_docx.py` で焼き込む。pandoc の既定データを加工したものなので、リポジトリには同梱しない。
+  - **雑誌のテンプレートを雛形にする** (`reference_base`。ABE): 利用者が置いたテンプレートを雛形にし、**体裁を焼き込まない**
+    (`patch_reference_docx.py --base`)。足すのは pandoc が使うスタイルの別名 (テンプレートに同名が無いものだけ。`FirstParagraph` /
+    `ImageCaption` / `Bibliography` / `Abstract` など。足し漏れは pandoc が自動で定義し、基のスタイルを欠いて文字が小さくなる)・
+    見出しの番号定義の修正 (小節の番号が節で戻らない設定を外す)・題と副題の語の途中での改行の禁止。見本の文章は消し、節の骨組み
+    (改ページの段落・表題部の節の `sectPr` を持つ段落・最終の `sectPr`) だけを残す (pandoc は雛形の本文で最初に現れる `sectPr` を
+    出力に写すため)。テンプレートが持つ文書を特定しうる情報 (作成者・最終更新者・変更履歴・コメント・文書 ID・`w:docVars`・
+    `customXml/`・編集の例外の範囲・保護の設定・本文から参照されない画像など) は外す。残すパートは許可リスト (pandoc が雛形から読む
+    パートとそれが指す画像・埋め込みの書体) にし、無いパートは外して警告し、最後に宙に浮いた関係の ID と作成者などの属性が残って
+    いれば止める。雛形がふつう持つスタイル (Body Text / Title / Subtitle / Caption / Footnote Text / Footnote Reference / Author /
+    Affiliation) が無ければ受け皿の別名を足して警告する。テンプレートの SHA-256 が `reference_base_sha256` と違えば止まる
+    (改版でスタイル名や節の構造が変わると後処理が外れうるため。新しい版を使うなら値を書き換えて確かめ直す)。生成の記録
+    (`.reference.source`) と警告 (`.reference.warnings`) を残し、テンプレートと reference.docx が git で追跡されている・無視されて
+    いなければ警告する。この誌では体裁キーは照合用 (改版の検知) で、`profile.yaml` に書いたキーだけを比べる。
+- 両方に共通して、差分の文字スタイル (`DiffAdd` / `DiffDel`) と、`custom-style` Div の受け皿になる段落スタイル (`Affiliation` /
+  `Keywords` / `Corresponding` / `Legend`) を入れる。zip の項目の時刻を固定しているので、同じ入力なら何度作っても同じバイト列になる。
+- **体裁キーの読み手は `make-reference.sh` だけ**で、build / package の実行時には読まない (体裁は reference.docx が持つ)。
+  したがって体裁を変えたら `make-reference.sh` を回し直す。忘れたときは build と規定チェックが食い違いを警告する
+  (比べるのは用紙・余白・行間・級数・行番号などで、`text_styles` は比べない)。
+  例外は `line_numbers_scope` で、節設定から行番号を外す形で build が効かせる。
+- `page_numbers: true` のときだけフッタ (`PAGE` フィールド) を作る (焼き込む誌)。未指定の誌にはフッタの部品も関係も入らない。
+- 題 (`Title`) の行送りは、pandoc の既定 (シングル) から本文の行送りに直す (焼き込む誌)。`text_styles` を持つ誌はさらに、
+  `uniform_size` で級数を持つスタイル (題・副題・著者・日付・抄録・見出し 1〜3 など) をすべて本文の級数にそろえ、見出しの階層を
+  強調で付け (題・見出し 1 = 太字 / 見出し 2 = 太字斜体 / 見出し 3 = 斜体。題を継ぐ著者・日付・副題には継いだ強調を打ち消す)、
+  `heading_color: black` で題・見出しのテーマ色を外し、`uniform_line_spacing` で段落スタイルが個別に持つ行送りを外して文書全体の
+  行送りにそろえる。どれも省略時は何もしない (ほかの誌の出力は変わらない)。
+- 行番号は 1 行目を 1 から数える (`w:lnNumType` の `w:start="0"`。Word はこの値に 1 を足した番号から始める)。
+
+---
+
+## 4. 入出力とデータ管理
+
+| 種類 | 置き場所 | git |
+|------|---------|-----|
+| 原稿 (一次ソース) | `src/` (main.md / ref.bib / revise-report.md / cover-letter.md / figs/ / supplementary/) | 追跡する |
+| 記入済みの投稿書式 | `<入力ルート>/forms/` (Submission Form・COI 書式・承認書など。署名と個人情報を含む) | 追跡しない (`src/forms/`。動作例の架空のダミー書式 `data/dummy/abe/forms/` は追跡する) |
+| サンプル原稿とフィクスチャ | `data/dummy/` (`src/` と同じ構成) | 追跡する |
+| 雑誌プロファイル | `data/journals/` | 追跡する (ただし `reference.docx`・雑誌が配るテンプレート・生成の記録 `.reference.*` は追跡しない) |
+| 本番の図・素材 (補助) | `data/source/` | 追跡しない |
+| 図の中間生成物 | `data/step01_figures/` | 追跡しない |
+| ビルドした docx | `data/step02_build/` | 追跡しない |
+| 差分 docx | `data/step03_diff/` | 追跡しない |
+| 提出物の集約 | `data/output/` (`<id>/` = 投稿パッケージ) | 追跡しない |
+| Word で変換した PDF | `data/products/` | 追跡しない |
+| 一時ファイル | `jank/` (`diff.sh` の旧版・回帰スナップショット) | 追跡しない |
+
+- **入力ルート**: `.development` が有れば `data/dummy/`、無ければ `src/` (存在だけで判定し、中身は見ない)。環境変数 `INPUT_ROOT` と
+  `--input` で上書きできる。原稿の正本は常に `src/` で、`data/source/` は git に入れたくない素材の置き場に限る。
+- clone した直後の `src/` には、`src/README.md` と ABE のサンプル論文 (`main.md`・`ref.bib`・`cover-letter.md`・`figs/` の図 3 点 (段抜きの TJD の挿絵を含む)。
+  `data/dummy/abe/` の動作例に TJD の挿絵を足し、コメントを書き分けたもの) が入っていて、`.development` 無しでそのまま組める。自分の原稿は
+  `scripts/remove-sample.sh` でサンプルを消してから、汎用のサンプルのファイルと図の複製 (`docs/usage-guide.md` §1) や骨格
+  (`data/journals/<id>/skeleton/`) の複製で起こす。`remove-sample.sh` と `package.sh` は、サンプルの各ファイルの SHA-256 の一覧
+  (`scripts/lib/sample-files.sha256`) と中身を比べてサンプルかを見分ける (書き換えたファイルはサンプルとみなさない)。`package.sh` は、
+  自分の `main.md` の隣にサンプルのファイルが中身もそのまま残っていると最終モードで止め、草稿モードでは注意を出す
+  (原稿がサンプルそのものなら注意だけ)。`samples/` はサンプルから作った出力の見本 (`scripts/make-samples.sh` で作り直す。ABE は
+  学会テンプレートを再配布しないため PDF だけ)。
+- **コードとデータを分ける**: `main/` にはデータの生成物を置かない。段のコードは `main/stepNN_name/`、段の出力は `data/stepNN_name/`。
+- **冪等性**: 同じ入力なら図の前処理・pptx・reference.docx は同じバイト列になる。docx は `docProps/core.xml` の作成時刻だけが変わる
+  (回帰の比較は docx を zip の部品ごとに内容で比べる。`scripts/compare-snapshots.py`)。
+
+---
+
+## 5. 制約と既知の制限
+
+- **PDF は roundtrip に依存する**: rclone のリモートと、送出先のフォルダで動く Windows の watcher が要る。無ければ docx までは
+  作れるが PDF は作れない。watcher が無いまま送ると、変換されずにタイムアウトする (`roundtrip.sh` は送る前に生存記録を見て
+  警告する。事前の確認は `check-pdf-path.sh`)。
+- **ネイティブ SVG の閲覧環境**: ベクターで表示するのは Microsoft 365 / Office 2019 以降。Office 2016 以前と一部のビューアは
+  PNG フォールバックを表示する (ファイルは壊れない)。そのため PNG フォールバックの解像度は、多くの受け手が実際に見る品質として
+  要求 dpi を満たすように作る。代わりに docx は大きくなる。
+- **PDF → SVG の品質**: 複雑な PDF (透明・特殊なフォント) は pdf2svg で崩れることがある。崩れる図は元のデータから SVG で出し直す。
+  PDF しか無いときは、PDF を直接ラスタ化して PNG で置く。
+- **和文フォント**: pandoc / mermaid コンテナに Noto CJK と IPA を入れてある。Windows で変換したときのフォントの違いに注意する。
+  `reference.docx` に和文のフォント (`w:eastAsia`) を焼き込むキーは無い (和文の本文を含む原稿は扱っていない)。
+- **語数・ページ数**: `profile.yaml` の上限は検査の補助で、最終の判断は実物で行う。刷り上がりのページ数は組版の後にしか
+  分からず、検査しない。
+- **Mermaid**: headless Chromium を `--no-sandbox` で動かす。権限の厳しい環境では調整が要ることがある。
+- **svg-conversion のフォント**: 専有フォントが無ければ代わりのフォントになる (警告のみ)。MS Core Fonts の取得に失敗したら
+  ビルドを止める。
+- **段組と非対称の余白は、雑誌のテンプレートを雛形にする経路で扱う** (`reference_base` + `layout`)。体裁を焼き込む誌では
+  `margins` は四辺一律の代表値として焼き込み、辺ごとの辞書を書くと `make-reference.sh` が止まる。
+- **日本語のスタイル名は扱わない**。`custom-style` に日本語のスタイル名を書くと pandoc は通すが、差分の温存と語数の除外の対象に
+  ならない。テンプレートに無い custom-style を原稿が使ったときは、規定チェックが参考情報で知らせる。
+- **雑誌のテンプレートの改版**: 後処理はテンプレートの構造 (スタイル名・節の並び・見出しの番号定義・柱の形) に合わせてあるので、
+  改版で外れうる。指紋が違えば `make-reference.sh` が止まり、スタイルの欠けと見出しの自動番号の欠けは build・diff のたびに警告する。
+  新しい版を使うときは警告と roundtrip の PDF の見た目を確かめ直す。
+- **文献の番号が 3 桁になると** (`[100]` 以上)、番号だけでぶら下げ字下げ (ABE は 7.5 mm) を越え、1 行目の本文の頭が次のタブ位置に出る
+  (`[1]`〜`[99]` はそろう)。
+- **段組の誌のテキストボックス** (`.textbox`) の位置は、ページの見積もりが段組と表題ページでずれうるので、roundtrip の PDF を見て
+  属性を手で合わせる。
+- **差分**: 消した図表・式を参照する消した文の参照は `¿…?` になる (§2.3)。
+- **図の種類ごとの解像度** (線画 1200 dpi / 写真 300 dpi など) は表せない。線画かどうかを知る手段がパイプラインに無いため。
+  `--dpi <n>` で全図を高い解像度にすれば規定は満たせる。
+- **匿名化は自動では行わない**。`blinded: true` の誌では `package.sh` が注意を出す。
+- **本文と書式を 1 本の PDF に結合しない**。投稿系が 1 本の PDF しか受け付けない誌に出すなら、PDF の道具で結合する処理を足す。

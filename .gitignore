@@ -1,0 +1,80 @@
+# docx-paper-template-abe — .gitignore
+#
+# Your manuscript lives in src/ and is meant to be committed. Everything the pipeline
+# generates goes under data/ (or jank/) and is ignored here.
+
+# --- Input-root marker (present: data/dummy/ is the input; absent: src/) ---
+.development
+
+# --- Generated files of each pipeline stage ---
+data/step*/*
+!data/step*/.gitkeep
+data/output/*
+!data/output/.gitkeep
+data/products/*
+!data/products/.gitkeep
+
+# --- Production material you do not want in git (scans, raw data, ...) ---
+data/source/*
+!data/source/.gitkeep
+
+# --- Filled-in submission forms (signatures and personal data; never commit) ---
+# package.sh copies <INPUT_ROOT>/forms/ into the submission package for journals that set
+# submission.collect_forms in profile.yaml.
+src/forms/
+
+# --- Journal templates and reference documents ---
+# A journal's template (such as the society's ABETemplate.docx for the abe profile) and the
+# reference.docx generated from it or from pandoc's default data are never committed: the template
+# belongs to its publisher, and build.sh / diff.sh regenerate reference.docx when it is missing
+# (see THIRD_PARTY_NOTICES.md). Every Word file in a journal directory is ignored, so a downloaded
+# "ABETemplate (1).docx" is not picked up by `git add -A` either. To track the reference.docx of a
+# journal you add yourself, add a line such as
+#   !data/journals/<id>/reference.docx
+data/journals/*/*.docx
+data/journals/*/*.dotx
+data/journals/*/*.docm
+data/journals/*/*.dotm
+# Records written by make-reference.sh (source fingerprint and warnings) and their temporary files
+data/journals/*/.reference.source
+data/journals/*/.reference.source.*
+data/journals/*/.reference.warnings
+data/journals/*/.reference.stderr.*
+
+# --- Temporary base file of make-reference.sh (left behind only if it is interrupted) ---
+data/journals/*/.base-reference.docx
+
+# --- PNG fallbacks generated from SVG figures ---
+*.svg.png
+
+# --- Mermaid output (regenerated from the .mmd source) ---
+src/figs/mermaid/*.svg
+src/figs/mermaid/*.pdf
+data/dummy/figs/mermaid/*.svg
+data/dummy/figs/mermaid/*.pdf
+
+# --- Proprietary fonts for the svg-conversion image (licensed per user; never commit) ---
+fonts/*
+!fonts/.gitkeep
+
+# --- Scratch space (diff.sh and the regression snapshots write here) ---
+jank/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# --- Editors and OS ---
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# --- Local settings and secrets ---
+.env
+.env.local
+.claude/settings.local.json*

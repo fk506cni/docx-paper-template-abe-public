@@ -1,0 +1,229 @@
+# profile.yaml — abe (Advanced Biomedical Engineering)
+#
+# 誌名: Advanced Biomedical Engineering (ABE)。発行: 日本生体医工学会 (JSMBE)、J-STAGE で公開する完全オープンアクセスの英文誌。
+# 一次資料: Instructions to Authors (PDF・末尾の日付 1 April 2026。Web 版と全文を突き合わせ済み) と、学会テンプレート ABETemplate.docx (ver.3)。
+#   規定の読み解き・テンプレートの解析・食い違いの扱いは docs/journal-abe.md にあり、下のコメントの「§N」は同書の節番号。
+#   規定とテンプレートが食い違うときは規定を優先する。
+#
+# 【書いてあるキー】**ここに書くのは、読み手のあるキーだけ**である。学会テンプレートを雛形にする誌のためのキー
+#   (reference_base・headings・header・title_page・layout・crossref・equations・bibliography・figures.keep_together / separate・
+#   tables.legend_position・規定チェックの limits / abstract / sections / lint・submission) はどれも省略でき、書かない誌では何もしない
+#   (キーの一覧と既定は docs/profile-schema.md)。図を分離しないので、図の形式 (figures.formats) と図のファイル名の書式 (numbering) は書かない。
+
+name: "Advanced Biomedical Engineering"
+
+# --- 引用様式 ---
+# 引用は modified Vancouver (本文は出現順の番号を角括弧で [1] / [3, 4] / [7–10]、文献は全著者・巻は太字。§4)。
+# 公開の CSL は無いので自作した。規定の公式例 6 件との照合は bash scripts/check-csl.sh --journal abe --fixture data/dummy/abe-csl
+# (docx を渡すと巻の太字と本文の角括弧も実測する)。ページ範囲の区切りはエンダッシュ (規定 PDF の U+2012 ではなく掲載論文の字)
+csl: abe.csl
+
+# --- 体裁の雛形: 学会テンプレートから作る ---
+# reference.docx は学会テンプレート ABETemplate.docx を雛形にして make-reference.sh が作る生成物で、どちらも git で追跡しない。
+# テンプレートは人が学会サイト (reference_base_url の Instructions to Authors のページ) から取って data/journals/abe/ に置く。
+# 体裁 (書体・寸法・行間・余白・2 段組・行番号・柱とページ番号) はテンプレートが正で、焼き込まない。生成で足すのは pandoc が使う
+# スタイルの別名と、見出しの番号定義・題のハイフネーションの修正だけで、見本の文章と文書を特定しうる情報は消す (§8.4・§11.3)。
+# build / diff は reference.docx が無いか、生成の元 (テンプレート・この profile・生成処理) が変われば作り直す (scripts/lib/ensure-reference.sh)。
+reference_doc: reference.docx
+reference_base: ABETemplate.docx
+# テンプレートの指紋 (ver.3。2026-11 時点の学会サイトの配布版とバイト一致。§0)。違う版が置かれたら make-reference.sh が止まる
+# (新しい版を使うなら、表示された値に書き換えてから、警告と roundtrip の PDF の見た目を確かめ直す)
+reference_base_sha256: 215e02c51c27a96407975a54a7fb88d54da94da3079f5939e09ff8eae28e6666
+reference_base_url: https://abe-journal.org/authorinstructions
+
+# --- 体裁の照合 (焼き込まない。テンプレートから作った reference.docx とこの値を build と validate が照合する) ---
+# テンプレートの値 (§8.1・§8.2) を写してあり、テンプレートが改版されて値が変われば build のたびに警告が出る (改版の検知)。
+# テンプレートを雛形にする誌の照合は、ここに書いたキーだけを見る。
+# line_spacing は書かない: テンプレートの Normal は行間「最小 12 pt」で、single / 1.5 / double のどれでもない (照合もしない)
+line_numbers: per-page           # 本文の節 (2 段組) の行番号。ページごとに 1 に戻る (§8.1)。reference.docx の最終の節 (= 本文の節) と照合する。
+                                 #   (本文の節は後処理が組み立てる。下の layout)
+page_numbers: true               # フッタの「n/N」(§8.1)
+font: "Times New Roman"          # テンプレートの既定の書体 (§8.2。見出しと題は Arial)
+font_size: 10.5pt                # テンプレートの Normal (§8.2)
+margins:                         # 上 25 / 下 20 / 左右 15 mm の非対称 (§8.1)。辺ごとに照合する
+  top: 25mm
+  bottom: 20mm
+  left: 15mm
+  right: 15mm
+paper_size: a4                   # §8.1
+# 行番号を付ける範囲: 本文 (main.md) だけ。カバーレターと回答書 (revise-report.md) には付けない
+# (テンプレートの行番号は本文の節の設定で、規定に行番号の要求は無い。§8.1)
+line_numbers_scope: manuscript
+
+# --- 見出し ---
+# 番号つきの節はテンプレートの見出しのスタイル (heading 1〜3) の自動番号をそのまま使う (原稿に番号を書かない)。
+# 番号の無い節 ({.unnumbered}。Abstract / Conflicts of interest / Ethics declaration / Acknowledgements / References) は、
+# テンプレートの番号なしの見出しのスタイルにする (heading 1 のままだと「6. Conflicts of interest」と番号が付く。§11.1)
+headings:
+  unnumbered_style: NoNumberSectionHeader
+  # 見出しの自動番号は本文 (main.md と差分) だけに残す。回答書 (revise-report.md) とカバーレターの見出しは、テンプレートの
+  # 見出しのスタイルのまま番号だけを外す (外さないと「1. Response to Reviewers」「1.1 Reviewer 1」になる)
+  numbered_scope: manuscript
+
+# --- 柱 ---
+# テンプレートの柱は `distributed` TAB `Template for ABE` TAB `ver.3` で、本文に「中央を running title に置き換える」と指示がある (§8.1)。
+# 中央に running title (表題ページの Subtitle の段落。規定の running title / abbreviated title。§3.1・§9 の 5) を入れ、
+# 左右のテンプレートの表示を消す。running title の段落が無い文書 (カバーレター・回答書) は柱の文字をすべて消す (ページ番号は残る)
+header:
+  running_title_from: Subtitle
+  clear_template_labels: true
+
+# --- 表題ページ ---
+# 所属は規定どおり上付きの番号で著者と対応づける (`^1^Graduate School of …`。§3.1・§9 の 2)。テンプレートの Affiliation スタイルは
+# 「記号 + TAB + 本文」前提のぶら下げ字下げ (5.0 mm) なので、docx で番号の直後にタブを入れ、折り返した行の頭を本文にそろえる
+# (原稿にタブは書かない)
+title_page:
+  affiliation_label_tab: true
+  # 異動後の新住所は脚注に書き、上付きの記号 (* と ** など) で示す (§3.1)。ほかの脚注は上付きの数字 (§3.2)。原稿は著者名の直後に普通の脚注
+  # (`Hanako CHOKKAN^2^^[Present address: …]`) を書き、docx で著者の段落の中の脚注の参照と番号を出てきた順に記号にする (文面の同じ脚注は
+  # 1 つにまとめる)。記号は規定の例とテンプレートの見本 (* と **) に倣って星の数で増やす
+  author_footnote_marks: ["*", "**", "***", "****"]
+
+# --- 段組 ---
+# テンプレートは表題ページ (題〜Keywords) を 1 段組の節、本文を 2 段組の節 (段間 13.3 mm・段の幅 83.3 mm・行番号) にしている (§8.1)。
+# pandoc は段組を知らないので、後処理 (main/step02_build/layout.py) が Keywords の段落の後に改ページと表題部の節の区切りを置き、
+# 文書の最後の節を reference.docx の本文の節 (= テンプレートの節 2) の写しにする。下の columns と column_space は
+# テンプレートの値の照合用 (違えば build が警告する。改版の検知)。原稿に段組の指示は書かない。
+# 段の幅を超える図は段の幅に縮め (警告)、本文幅で置く図表は原稿で図に {.wide}・表は ::: wide の Div を付ける (段抜き)
+layout:
+  columns: 2
+  column_space: 13.3mm
+  title_block_until: Keywords      # 表題部の最後の段落の段落スタイル (§8.3)
+  title_page_break: true           # 表題ページを独立させる (テンプレートどおり)
+  scope: manuscript                # 段組は本文 (main.md と差分) だけ。カバーレターと回答書は 1 段組のまま
+
+# --- 図表の題と相互参照 ---
+# 題は「Fig. 1 題」「Table 1 題」(番号の後にコロンもピリオドも無く空白 1 個。§5・§8.3)、本文の参照は Fig. 1 / Table 1 (§5)。
+# pandoc-crossref の設定 (main/00_setup/defaults.yaml の metadata。既定は「Figure 1: 題」) をこの誌だけ上書きする。
+# 参照の語 (figPrefix / tblPrefix) は既定と同じ値だが、誌の規定として明記しておく (既定が変わっても ABE の参照は変わらない)。
+# 式の参照 (eqnPrefix。既定 Eq. 1) は規定に無いので既定のまま
+crossref:
+  figureTitle: "Fig."
+  tableTitle: "Table"
+  titleDelim: ""                   # 「Fig. 1 題」(空白は pandoc-crossref が 1 個入れる)
+  figPrefix: ["Fig.", "Figs."]
+  tblPrefix: ["Table", "Tables"]
+
+# --- 式 ---
+# 番号つきの別行立ての式 ($$ … $$ {#eq:x}) を、テンプレートの Equation スタイル (右タブ ≒ 段の幅) の「式 TAB (1)」にする
+# (式番号を段の右端に寄せる。§8.2・§11.3)。番号の無い式は中央揃えのまま
+equations:
+  style: Equation
+
+# --- 文献の番号と本文の区切り ---
+# テンプレートの文献の見本は「[1] TAB 本文」(Reference スタイルのぶら下げ字下げ 7.5 mm にタブでそろえる。§8.3)。pandoc は「[1] 空白 TAB 本文」と書き、
+# Word では [10] 以降の番号で「番号 + 空白」が 7.5 mm を越えてタブが次の既定のタブ位置へ飛ぶので、後処理で番号の後の空白を消す。
+# [100] 以降は番号だけで 7.5 mm を越えるので、1 行目の本文の頭はずれる (docs/journal-abe.md の通し検証の実測値)
+bibliography:
+  label_separator: tab
+
+# --- 図 ---
+# 図表は本文中の適切な位置に、PDF 版の見た目を写す大きさで埋め込み、分離提出しない (§5・§6.1)。解像度・形式の規定は無い (§5)。
+figures:
+  embed: true                    # package の既定のモードを draft (図を本文に埋め込む) にする
+  separate: false                # 提出用 (package.sh --mode final) でも図を本文から外さない (設計は §14.1)。
+                                 #   manuscript.docx は main.docx そのもので、出所の照合は止める側・SUBMISSION.md は提出用・
+                                 #   roundtrip は配送する。図の形式 (formats) と図のファイル名の書式 (numbering) は使わないので書かない
+  dpi: 300                       # 規定は無い (§5)。bash scripts/check-figures.sh --journal abe の目標の解像度 (本文に埋め込む
+                                 #   PNG フォールバックは step01 が誌によらず 300 dpi で作るので、この値の影響を受けない)
+  keep_together: true            # 図 → 題 → 凡例を段・ページで分けない (題とキャプションは図の下。§5)
+
+# --- 表 ---
+tables:
+  placement: inline              # 表は本文中に置いたまま (末尾へ移さない・別ファイルにしない。§5)
+  legend_position: above         # 表の題とキャプション (凡例) は表の上 (§5)。原稿では凡例を表の後に書き、docx で題の後へ移す
+
+# --- 記事種別と上限 ---
+# 上限は記事種別の節では "recommended length" だが、Manuscript Preparation が "must comply with article length limits" とするので
+# 上限として扱う (§2)。何を語数に数えるかは規定に無いので、本テンプレートの語数は本文だけを数える (表題ページ・文献・図表の題と凡例は数えない)。
+article_type: original           # 既定の種別。--article-type で上書きする
+article_types:                   # 種別の名前は Submission Form の記事種別の欄に合わせた (§6.4)
+  original:
+    name: "Original Paper"
+    word_count: 4000             # §2
+  letter:
+    name: "Research Letter"
+    word_count: 2500             # §2
+  technical:
+    name: "Technical Note"
+    word_count: 1500             # §2
+  review:
+    name: "Review Paper"
+    word_count: null             # 編集委員会が論文ごとに決める (§2)。語数の照合はしない
+
+limits:                          # 記事種別によらない上限
+  abstract_words: 350            # 全種別で 350 語・1 段落 (§2・§3.1)
+  keywords: 5                    # 5 語まで (§3.1)。題の語を繰り返さない検査は lint.keywords_not_in_title
+  references: null               # 文献数の上限は無い (§2)
+  running_title_chars: 50        # 題が 50 字 (空白込み) を超えるなら running title (Subtitle の Div) が要り、running title も 50 字以内 (§3.1)
+  supplementary_file_mb: 50      # 補足資料は 1 ファイル 50 MB・合計 50 MB 以下 (§6.2。1 MB = 1 000 000 バイトで比べる)
+  supplementary_total_mb: 50
+
+# --- 抄録と査読 ---
+abstract:
+  structured: false              # 構造化抄録は不可 (1 段落。§3.1)
+  citations_allowed: false       # 抄録では番号の引用を使わない。先行文献に触れるなら題を省いて本文中に書く (§3.1 の例)
+  single_paragraph: true         # 抄録は 1 段落 (§3.1。2 段落以上なら要修正)
+  floats_allowed: false          # 抄録で図表を引用しない (§3.1 の "Avoid … citing figures or tables"。参考情報)
+
+blinded: false                   # single-blind (著者名を伏せない。§1)
+
+# --- 節 ---
+# 規定は「序論・方法・結果・考察・図表 (題つき)」を原稿に欠かせない要素とし ("All manuscripts must contain the essential elements")、
+# 利益相反の申告と文献を求める (§3.2・§3.3)。最上位の見出しで探し、無ければ要修正。
+# Acknowledgements は規定上の必須ではない (資金があれば書く。下の lint.funding_section)。Ethics declaration は人・動物を扱うときだけ (lint.ethics_section)。
+# 節の名前は規定の中でも揺れる (Conflicts of interest / interests、Acknowledgments / Acknowledgements。§9 の 6) ので、言い換えの組を aliases に置く。
+# 大文字小文字・語末の s (interest / interests)・& と and は組に書かなくても同一視する
+sections:
+  required: ["Introduction", "Materials and methods", "Results", "Discussion", "Conflicts of interest", "References"]
+  aliases:
+    # 規定の Manuscript Preparation の見出し。テンプレートは Method。節の名前は語の境界で照合する (前方一致ではない) ので、
+    # Methodology も言い換えとして組に書く
+    - ["Materials and methods", "Methods", "Patients and methods", "Subjects and methods", "Methodology"]
+    - ["Discussion", "Results and discussion"]
+    - ["Conflicts of interest", "Competing interests"]
+    - ["Ethics declaration", "Ethics statement", "Ethical approval", "Ethics approval"]
+    - ["Acknowledgements", "Acknowledgments"]
+
+# --- 規定チェック (package.sh の最後と validate.py が読む。どれも既定は無効で、ここで有効にする) ---
+# 基底の検査 (合成文字・記入欄・凡例の配置・単位) はそのまま効く (journal_profile.DEFAULTS["lint"])。ほかの誌のための検査
+# (Declarations の 6 項目・Abbreviations 節・連絡著者・langid など) は ABE の規定に無いので有効にしない
+lint:
+  author_surname_caps: true      # 要修正: 姓はすべて大文字 (§3.1 "All surnames must be fully capitalized"。テンプレートの見本は大文字でない = §9 の 1)
+  affiliation_superscript: true  # 参考: 異なる機関の著者がいるなら所属を上付きの数字で対応づける (§3.1。記号 * ** は新住所の脚注用 = §9 の 2)
+  keywords_not_in_title: true    # 要修正: キーワードで題の語を繰り返さない (§3.1 "Do not repeat words from the manuscript title")
+  title_conventions: true        # 参考: 題に略語 (分野で一般的なもの以外) とシリーズ番号 (Part II など) を使わない (§3.1)
+  float_titles: true             # 要修正: 図表には題を付ける (§3 の必須の要素 "figures and tables with captions")
+  caption_minimal_caps: true     # 参考: 図表の題とキャプションは最小限の大文字 (§5 "minimal capitalization")
+  abbreviation_definitions: true # 参考: 略語は本文の初出で正式名とともに括弧で定義する (§3.2。題と抄録での定義は本文の初出とみなさない)
+  uncitable_references: true     # 参考: 社内資料・未発表原稿・未発表の学位論文・私信・カタログは文献にできない (§4)
+  coi_section: "Conflicts of interest"   # 参考: 利益相反の節に、無い場合の定型文も具体的な申告も無さそうなら (§3.3)
+  coi_standard_sentence: "The authors declare no conflicts of interest with any companies or commercial organizations per the definition of Japanese Society for Medical and Biological Engineering."
+  ethics_section: "Ethics declaration"   # 参考: 人・動物を扱うらしい語があるのにこの節が無いなら (§3.3)
+  ai_disclosure_section: "Materials and methods"   # 参考: AI ツールの使用は Methods で開示する (§3.2)
+  funding_section: "Acknowledgements"    # 参考: 資金源はすべてこの節に、資金提供者と助成番号の両方で書く (§3.3)
+  supplementary_archives: true   # 参考: 補足資料にバイナリ・アーカイブのファイルを含まない (Submission Form の確認項目。§6.4)
+  unstructured_abstract: true    # 要修正: 構造化抄録 (見出しつき) は不可 (§3.1 "Structured abstracts cannot be accommodated")
+  front_matter_divs: ["Title", "Author", "Abstract", "Keywords"]   # 要修正: 表題ページの Div が無い・2 つ以上 (上の検査が空振りする)
+  table_caption_attrs: true      # 要修正: 表の題に {#tbl:x .wide} と書かない (段抜きは ::: wide の Div)
+
+# --- 提出物 (package.sh --mode final が SUBMISSION.md を書き、roundtrip.sh が Drive の submission-abe/ に置く) ---
+# 規定は書式・本文・図表を 1 本の PDF にまとめて上げるよう書く (§6.1 "should convert … into one PDF file") が、
+# 本テンプレートは結合せず、本文と書式をそれぞれ Word で PDF にして別々に上げる (規定は should。投稿画面が受け付けなければ結合が要る)。
+# 図表の番号の書式 (本文と題の Fig. 1 / Table 1) は crossref が決める (図のファイルを別に作らないので numbering は使わない)
+submission:
+  text_formats: [pdf]            # 原稿本体は Word で PDF にした manuscript.pdf を上げる (manuscript.docx から roundtrip が作る)
+  collect_forms: true            # <INPUT_ROOT>/forms/ の記入済みの書式を提出パッケージの forms/ に複製し、docx は Word で PDF にする。
+                                 #   署名・個人情報を含むので git で追跡しない (.gitignore は src/forms/ を外す)
+  forms:                         # SUBMISSION.md の「提出フォーム」のチェックリスト (§6.2〜§6.4)。forms/ の名前は例 (決め打ちしない)
+    - "Submission Form and Author Statement (1 通。学会サイトの書式に記入し、Author Statement に全著者が氏名・署名・日付を入れる。署名を入れて PDF にしたものを forms/submission-form.pdf などで置く)"
+    - "COI 開示書式 (**著者ごとに 1 通**。連絡著者が全員分を PDF で上げる。forms/coi-<著者>.docx などで置けば Word で PDF にする)"
+    - "英文校正の証明 (英語を母語としない著者。専門の校正会社の証明書か請求書。著者の 1 人が校正したなら、その著者が筆頭か連絡著者の英文の査読つき論文 2〜3 本)"
+    - "倫理審査の承認の証拠書類 (人・動物を扱う研究。原稿とともに出す)"
+    - "転載許諾の写し (著者の著作権下にない素材・既発表の素材を使うとき。初回投稿時に出す)"
+    - "研究データの全量 (査読中に編集者と査読者へ開示する。補足資料か、原稿から公開のデータベース・リポジトリへのリンクで渡し、出版日までに公開する)"
+    - "関連原稿 (他所で審査中・印刷中・刊行済み) があれば編集者に知らせる (カバーレターか投稿系の欄で)"
+    - "査読者の推薦・除外 (任意。投稿系の入力欄。編集者は従う義務を負わない)"
+  # 補足資料の節に書く規定の要点 (§6.2・§6.4)。容量の上限は limits.supplementary_* から SUBMISSION.md が別の行に書く
+  supplementary: "査読の対象なので、最終形で初回投稿時に出す (受理後は変更できない。受理すると論文と一緒に公開される)。画像・動画・音声・Word・Excel など標準のソフトで開ける形式にする。言語・英文校正・著作権の規定は補足資料にも掛かる。Submission Form は、バイナリ (実行形式) とアーカイブ (圧縮) のファイルを含まないことと、ファイルごとの名前・形式・査読を望むかを尋ねる。"
+  diff_note: "改訂稿の変更箇所の示し方は規定に無い。差分 docx (変更を色で示した本文) を回答書と一緒に上げるかは投稿系の画面で確かめる。"

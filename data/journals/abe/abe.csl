@@ -1,0 +1,335 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  abe.csl — Advanced Biomedical Engineering (ABE) 引用スタイル (雑誌の公式ではない。本テンプレートが規定の出力例を再現するために書いた)
+
+  出典: Instructions to Authors (PDF・末尾の日付 1 April 2026) の "References" /
+        https://abe-journal.org/authorinstructions
+  対応表: docs/journal-abe.md §4 (公式の出力例 6 件)
+  受入テスト: bash scripts/check-csl.sh (journal abe と data/dummy/abe-csl/ を渡す。docx を渡すと巻の太字と本文の角括弧も実測する)
+
+  規定の要求 (modified Vancouver):
+    - 本文の引用は出現順の番号を角括弧で: [1] / [3, 4] / [7–10]。3 件以上の連番はエンダッシュでまとめ、2 件はカンマ + 空白
+    - 文献リストは全著者の「姓 頭文字」(et al. で打ち切らない)・題は省略しない・誌名は PubMed の略記・巻は太字
+    - 公式例の形 (6 種): 雑誌論文 / 本 / 本の章 / 会議録など / 特許 / オンライン
+        Author: Title. Journal. 巻(号), ページ, 年.
+        Author: Title, 2nd ed. 出版社, 所在地, pp. ページ, 年.
+        Author: Title. In: 編者 ed. 書名, 出版社, 所在地, pp. ページ, 年.
+        Author: Title. 会議録名, Vol. 巻. 出版社, 所在地, pp. ページ, 年.
+        Author: US Patent No. 番号. 年.
+        Author: Title. <URL> [accessed on 月 日, 年].
+
+  [扱い] 印 = 規定の文面と公式例では決まらず、本テンプレートが決めた点:
+    - ページ範囲の区切りはエンダッシュ (U+2013)。規定 PDF の公式例は U+2012 (FIGURE DASH) だが、同じ PDF が住所・郵便番号・FAX 番号にも
+      U+2012 を使い、J-STAGE に載った ABE の論文の文献欄はエンダッシュなので、組版での置き換えとみなした
+    - ページ範囲は省略しない (公式例 4 件と掲載論文がすべて 45–47 / 310–324 の形)
+    - 巻の太字は雑誌論文の巻だけ (公式例 4 の会議録の Vol. 2 は PDF でも太字でない)
+    - 誌名は bib の journal (略記) をそのまま使い、ピリオドを外す (PubMed の略記はピリオドを持たない)
+    - 雑誌論文の DOI は 巻・号・ページがどれも無いときだけ出す (公式例に DOI は無い。早期公開の論文を引くときのため)
+    - オンラインの例は規定の一般形では題の後にピリオドが無いが、例 (e.g.) にはあるので例に合わせた
+    - 公式例に無い文献型 (報告書・学位論文・データセットなど) は本の形 (題, 版. 出版社, 所在地, pp. ページ, 年.) で出し、URL か DOI があれば
+      後ろに足す (URL は公式例 6 の <URL> [accessed on …] の形)。本・章・会議録には URL を出さない
+    - 著者の無い文献は編者、それも無ければ題を先頭に出す
+  大文字小文字は bib の入力をそのまま使う (text-case を当てない)。pandoc は英語の題をセンテンスケースに直すので、
+  題を Title Case で出したい本・会議録の名前と固有名詞は bib で波括弧に入れて守る (data/dummy/abe-csl/ref.bib)。
+-->
+<style xmlns="http://purl.org/net/xbiblio/csl" class="in-text" version="1.0"
+       default-locale="en-US"
+       page-range-format="expanded"
+       demote-non-dropping-particle="sort-only"
+       initialize-with="" initialize-with-hyphen="false"
+       name-as-sort-order="all" name-delimiter=", " sort-separator=" ">
+  <info>
+    <title>Advanced Biomedical Engineering (unofficial)</title>
+    <title-short>ABE</title-short>
+    <id>https://github.com/fk506cni/docx-paper-template-abe-public/blob/main/data/journals/abe/abe.csl</id>
+    <link href="https://github.com/fk506cni/docx-paper-template-abe-public/blob/main/data/journals/abe/abe.csl" rel="self"/>
+    <link href="http://www.zotero.org/styles/american-medical-association" rel="template"/>
+    <link href="https://abe-journal.org/authorinstructions" rel="documentation"/>
+    <contributor>
+      <name>Julian Onions</name>
+      <uri>https://orcid.org/0000-0001-5192-6856</uri>
+    </contributor>
+    <contributor>
+      <name>Christian Pietsch</name>
+      <uri>https://orcid.org/0000-0001-8778-1273</uri>
+    </contributor>
+    <contributor>
+      <name>Daniel W. Chan</name>
+      <uri>https://orcid.org/0000-0002-8082-2316</uri>
+    </contributor>
+    <contributor>
+      <name>Patrick O'Brien</name>
+    </contributor>
+    <contributor>
+      <name>Andrew Dunning</name>
+      <uri>https://orcid.org/0000-0003-0464-5036</uri>
+    </contributor>
+    <category citation-format="numeric"/>
+    <category field="engineering"/>
+    <category field="medicine"/>
+    <summary>Unofficial style written to reproduce the reference examples in the Instructions
+    to Authors of Advanced Biomedical Engineering (Japanese Society for Medical and Biological
+    Engineering). It is not provided or reviewed by the journal. Adapted from the AMA Manual of
+    Style 11th edition style (see the template link; its authors and contributors are listed
+    above): citation numbers in square brackets in order of citation, all authors, PubMed
+    journal abbreviations, volume number in bold.</summary>
+    <updated>2026-11-20T00:00:00+00:00</updated>
+    <rights license="http://creativecommons.org/licenses/by-sa/3.0/">This work is licensed
+    under a Creative Commons Attribution-ShareAlike 3.0 License</rights>
+  </info>
+
+  <locale xml:lang="en">
+    <terms>
+      <!-- 公式例 2 は "2nd ed." (版の後に文が切れる)。章の書名の後の版は "3rd ed., 出版社" とカンマが続くので、版の語自体にピリオドを持たせる
+           (文末で group の suffix の "." と重なっても pandoc の citeproc が 1 個に畳む。実測) -->
+      <term name="edition" form="short">ed.</term>
+      <!-- 公式例 3 は "Black C ed." — 編者の語はピリオドを持たず、group の suffix で 1 個だけ付ける -->
+      <term name="editor" form="short">
+        <single>ed</single>
+        <multiple>eds</multiple>
+      </term>
+      <!-- 公式例 4: "Vol. 2" -->
+      <term name="volume" form="short">
+        <single>Vol.</single>
+        <multiple>Vols.</multiple>
+      </term>
+      <!-- ページ範囲の区切り (エンダッシュ。上の [扱い] の 1 つ目) -->
+      <term name="page-range-delimiter">–</term>
+      <!-- 本文の連番のまとめ ([7–10]) -->
+      <term name="citation-range-delimiter">–</term>
+    </terms>
+  </locale>
+
+  <!-- ================= マクロ ================= -->
+
+  <!-- 全著者を「姓 頭文字」でカンマ区切り (et al. で打ち切らない)。著者が無ければ編者、それも無ければ題 -->
+  <macro name="author">
+    <names variable="author">
+      <name/>
+      <label form="short" prefix=" "/>
+      <substitute>
+        <names variable="editor"/>
+        <text macro="title"/>
+      </substitute>
+    </names>
+  </macro>
+
+  <!-- 題・書名。大文字小文字は bib の入力のまま (text-case を当てて固有名詞を壊さない) -->
+  <macro name="title">
+    <text variable="title"/>
+  </macro>
+
+  <macro name="year">
+    <date variable="issued">
+      <date-part name="year"/>
+    </date>
+  </macro>
+
+  <!-- 公式例 2: "2nd ed." -->
+  <macro name="edition">
+    <group delimiter=" ">
+      <number variable="edition" form="ordinal"/>
+      <text term="edition" form="short"/>
+    </group>
+  </macro>
+
+  <!-- 公式例 2・3・4: "pp. 69–94" (1 ページなら "p. 23") -->
+  <macro name="pages">
+    <group delimiter=" ">
+      <label variable="page" form="short"/>
+      <text variable="page"/>
+    </group>
+  </macro>
+
+  <!-- 公式例 2・3・4 の後半: 出版社, 所在地, pp. ページ, 年. -->
+  <macro name="publication">
+    <group delimiter=", " suffix=".">
+      <text variable="publisher"/>
+      <text variable="publisher-place"/>
+      <text macro="pages"/>
+      <text macro="year"/>
+    </group>
+  </macro>
+
+  <!-- 公式例 6: <URL> [accessed on January 1, 2020] (末尾のピリオドは呼び出し側)。URL が無く DOI があれば doi: -->
+  <macro name="access">
+    <choose>
+      <if variable="URL">
+        <group delimiter=" ">
+          <text variable="URL" prefix="&lt;" suffix="&gt;"/>
+          <group delimiter=" " prefix="[" suffix="]">
+            <text value="accessed on"/>
+            <date variable="accessed">
+              <date-part name="month" suffix=" "/>
+              <date-part name="day" suffix=", "/>
+              <date-part name="year"/>
+            </date>
+          </group>
+        </group>
+      </if>
+      <else-if variable="DOI">
+        <text variable="DOI" prefix="doi: "/>
+      </else-if>
+    </choose>
+  </macro>
+
+  <!-- 公式例 1: Title. IEEE Trans Med Imag. 5(1), 45–47, 1986.  (巻は太字) -->
+  <macro name="body-article">
+    <group delimiter=" ">
+      <text macro="title" suffix="."/>
+      <text variable="container-title" form="short" strip-periods="true" suffix="."/>
+      <group delimiter=", " suffix=".">
+        <group>
+          <text variable="volume" font-weight="bold"/>
+          <text variable="issue" prefix="(" suffix=")"/>
+        </group>
+        <text variable="page"/>
+        <choose>
+          <if match="none" variable="volume issue page">
+            <text variable="DOI" prefix="doi: "/>
+          </if>
+        </choose>
+        <text macro="year"/>
+      </group>
+    </group>
+  </macro>
+
+  <!-- 公式例 2: Principles of Medical Engineering, 2nd ed. Pergamon Press, New York, pp. 69–94, 1988. -->
+  <macro name="body-book">
+    <group delimiter=" ">
+      <group delimiter=", " suffix=".">
+        <text macro="title"/>
+        <text macro="edition"/>
+      </group>
+      <text macro="publication"/>
+      <!-- 本 (公式例 2) は URL を出さない (書誌管理ソフトが本にも URL を付けて書き出すため)。報告書・データセットなどは URL か DOI を足す -->
+      <choose>
+        <if type="book" match="none">
+          <group suffix=".">
+            <text macro="access"/>
+          </group>
+        </if>
+      </choose>
+    </group>
+  </macro>
+
+  <!-- 公式例 3: Title. In: Black C ed. Pattern Recognition and Machine Learning, McGraw-Hill, Berlin, pp. 310–324, 1985. -->
+  <macro name="body-chapter">
+    <group delimiter=" ">
+      <text macro="title" suffix="."/>
+      <text term="in" text-case="capitalize-first" suffix=":"/>
+      <group suffix=".">
+        <names variable="editor">
+          <name/>
+          <label form="short" prefix=" "/>
+        </names>
+      </group>
+      <group delimiter=", " suffix=".">
+        <group delimiter=", ">
+          <text variable="container-title"/>
+          <text macro="edition"/>
+        </group>
+        <text variable="publisher"/>
+        <text variable="publisher-place"/>
+        <text macro="pages"/>
+        <text macro="year"/>
+      </group>
+    </group>
+  </macro>
+
+  <!-- 公式例 4: Title. Proc of NCGA’S Computer Graphics Conference ’87, Vol. 2. Am Med Eng Soc., New York, pp. 152–161, 1988. -->
+  <macro name="body-proceedings">
+    <group delimiter=" ">
+      <text macro="title" suffix="."/>
+      <group delimiter=", " suffix=".">
+        <text variable="container-title"/>
+        <group delimiter=" ">
+          <text term="volume" form="short"/>
+          <text variable="volume"/>
+        </group>
+      </group>
+      <text macro="publication"/>
+    </group>
+  </macro>
+
+  <!-- 公式例 5: US Patent No. 1234567. 1982.  (発明の名称が bib にあれば先頭に出す) -->
+  <macro name="body-patent">
+    <group delimiter=" ">
+      <group delimiter=". " suffix=".">
+        <text macro="title"/>
+        <group delimiter=" ">
+          <text variable="genre"/>
+          <text variable="number" prefix="No. "/>
+        </group>
+      </group>
+      <group suffix=".">
+        <text macro="year"/>
+      </group>
+    </group>
+  </macro>
+
+  <!-- 公式例 6: Instructions to Authors. <https://abe-journal.org/submission/> [accessed on January 1, 2020]. -->
+  <macro name="body-online">
+    <group delimiter=" ">
+      <text macro="title" suffix="."/>
+      <group suffix=".">
+        <text macro="access"/>
+      </group>
+    </group>
+  </macro>
+
+  <!-- ================= 本文中の引用 ================= -->
+  <!--
+    [1] / [3, 4] / [7–10]。collapse="citation-number" は 3 件以上の連番だけをまとめ、2 件の連番 (3, 4) はまとめない。
+    ページなどの locator があれば [4, p. 23]。角括弧は layout の prefix / suffix に置き、引用グループ全体を 1 組の括弧で囲む。
+  -->
+  <citation collapse="citation-number">
+    <sort>
+      <key variable="citation-number"/>
+    </sort>
+    <layout prefix="[" suffix="]" delimiter=", ">
+      <group delimiter=", ">
+        <text variable="citation-number"/>
+        <group delimiter=" ">
+          <label variable="locator" form="short"/>
+          <text variable="locator"/>
+        </group>
+      </group>
+    </layout>
+  </citation>
+
+  <!-- ================= 文献リスト ================= -->
+  <!--
+    番号は [n]。second-field-align="flush" で pandoc は番号と本文を分け、docx では「[1] TAB 本文」になる
+    (学会テンプレートの Reference スタイル = ぶら下げ字下げ 424 twip の形。reference.docx の Bibliography は Reference を基にした別名)。
+    et-al-min を書かない = 全著者を出す (規定 "list the surnames and initials of all authors")。
+  -->
+  <bibliography second-field-align="flush">
+    <layout>
+      <text variable="citation-number" prefix="[" suffix="]"/>
+      <group delimiter=": ">
+        <text macro="author"/>
+        <choose>
+          <if type="article-journal article-magazine article-newspaper article review review-book periodical" match="any">
+            <text macro="body-article"/>
+          </if>
+          <else-if type="chapter entry-dictionary entry-encyclopedia" match="any">
+            <text macro="body-chapter"/>
+          </else-if>
+          <else-if type="paper-conference" match="any">
+            <text macro="body-proceedings"/>
+          </else-if>
+          <else-if type="patent" match="any">
+            <text macro="body-patent"/>
+          </else-if>
+          <else-if type="webpage post post-weblog" match="any">
+            <text macro="body-online"/>
+          </else-if>
+          <else>
+            <text macro="body-book"/>
+          </else>
+        </choose>
+      </group>
+    </layout>
+  </bibliography>
+</style>

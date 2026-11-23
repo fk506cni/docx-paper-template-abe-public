@@ -1,0 +1,120 @@
+% data/dummy/abe-csl/ref.bib — abe.csl の受入テスト用フィクスチャ
+%
+% Instructions to Authors (PDF・1 April 2026) の "References" の公式例 6 件を再現するための最小エントリ (a)〜(f)
+% + 公式例に無い形 4 件 (g)〜(j)。期待出力は expected.txt。突合は
+%   bash scripts/check-csl.sh --journal abe --fixture data/dummy/abe-csl
+%
+% 注意: 期待文字列と 1 文字ずつ突き合わせるフィクスチャなので、
+%   - 著者名は規定の例が示す頭文字どおりに書く (フルネームは不明なため推測しない)
+%   - 題の大文字小文字: pandoc は英語の題をセンテンスケースに直す。Title Case で出したい書名・会議録の名前・題は
+%     全体を波括弧で守り、題の中の略語 (3D・CT) も語ごとに守る
+%   - 誌名は PubMed の略記を journal に持つ (abe.csl は誌名のピリオドを外す)
+%   - 公式例 1〜6 (a)〜(f) は規定の例の文字列からの転記で、規定の例に無い値 (DOI・URL) は足していない
+
+% --- (a) 雑誌論文 = 公式例 1 (巻は太字) ---
+@article{hohne1986,
+  author  = {Hohne, K. H. and Bernstein, R.},
+  title   = {Shading {3D}-images from {CT} using gray-level gradients},
+  journal = {IEEE Trans Med Imag},
+  year    = {1986},
+  volume  = {5},
+  number  = {1},
+  pages   = {45--47}
+}
+
+% --- (b) 本 (版・出版社・所在地・ページ) = 公式例 2 ---
+@book{born1988,
+  author    = {Born, M. and Wolf, E.},
+  title     = {{Principles of Medical Engineering}},
+  edition   = {2},
+  publisher = {Pergamon Press},
+  address   = {New York},
+  year      = {1988},
+  pages     = {69--94}
+}
+
+% --- (c) 本の章 (編者つき) = 公式例 3 ---
+@incollection{chandler1985,
+  author    = {Chandler, S.},
+  title     = {Adaptive model control applied to real time blood pressure regulation},
+  editor    = {Black, C.},
+  booktitle = {{Pattern Recognition and Machine Learning}},
+  publisher = {McGraw-Hill},
+  address   = {Berlin},
+  year      = {1985},
+  pages     = {310--324}
+}
+
+% --- (d) 会議録 (巻つき) = 公式例 4。出版社の略記の末尾のピリオド ("Soc.") は規定の例のまま持つ ---
+@inproceedings{heel1988,
+  author    = {Heel, N.},
+  title     = {Automated blood pressure control using a self-tuning regulator},
+  booktitle = {{Proc of NCGA’S Computer Graphics Conference ’87}},
+  volume    = {2},
+  publisher = {{Am Med Eng Soc.}},
+  address   = {New York},
+  year      = {1988},
+  pages     = {152--161}
+}
+
+% --- (e) 特許 = 公式例 5。規定の例は発明の名称を出さないので title を書かない (type は CSL の genre になる) ---
+@patent{white1982,
+  author = {White, A. G.},
+  type   = {US Patent},
+  number = {1234567},
+  year   = {1982}
+}
+
+% --- (f) オンライン = 公式例 6 (規定の e.g. の行)。団体の著者は二重の波括弧で 1 つの名前にする ---
+@online{abe2020,
+  author  = {{Advanced Biomedical Engineering}},
+  title   = {{Instructions to Authors}},
+  url     = {https://abe-journal.org/submission/},
+  urldate = {2020-01-01}
+}
+
+% === 公式例に無い形 (本テンプレートの実装判断の回帰ガード。期待値は規定の転記ではない) ==============
+% 内容は明らかなフィクション (TJD/THS のパロディ)。
+
+% --- (g) 著者 7 名・号なし・1 ページの論文番号。全著者が出る (et al. で切らない) こと・号の括弧が出ないことを見る ---
+@article{yokan2099,
+  author  = {Yokan, T. and Chokkan, H. and Dan, B. and Uwanosora, M. and Tremendo, H. and Hunchshire, K. and Vibes, T.},
+  title   = {Seven authors agree on the weight of the apparatus},
+  journal = {Jpn. J. Tremendous Hunch},
+  year    = {2099},
+  volume  = {12},
+  pages   = {e1024}
+}
+
+% --- (h) 本の章 (編者 2 名・版つき)。"eds" と書名の版を見る ---
+@incollection{dan2100,
+  author    = {Dan, B.},
+  title     = {Cold sweat as a dimensional quantity},
+  editor    = {Chokkan, H. and Vibes, T.},
+  booktitle = {{Handbook of Hunch Engineering}},
+  edition   = {3},
+  publisher = {Hunch Press},
+  address   = {Tremendo},
+  year      = {2100},
+  pages     = {101--120}
+}
+
+% --- (i) 早期公開の論文 (巻・号・ページが無く DOI だけ)。DOI が出ることを見る ---
+@article{chokkan2101,
+  author  = {Chokkan, H. and Yokan, T.},
+  title   = {A hunch that arrived before its own apparatus},
+  journal = {Int J Vibes Res},
+  year    = {2101},
+  doi     = {10.0000/ijvr.2101.0001}
+}
+
+% --- (j) 報告書 (公式例に無い型。URL と閲覧日つき)。本の形 + 公式例 6 の <URL> [accessed on …] になることを見る ---
+@report{hunch2101,
+  author      = {{Hunch Institute}},
+  title       = {Annual report on the tremendous hunch},
+  institution = {Hunch Institute},
+  address     = {Tremendo},
+  year        = {2101},
+  url         = {https://example.org/hunch/report-2101.pdf},
+  urldate     = {2101-03-03}
+}

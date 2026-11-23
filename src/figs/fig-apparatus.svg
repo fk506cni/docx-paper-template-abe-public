@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- src/figs/fig-apparatus.svg — 同梱のサンプル論文の図 1 (架空の装置 TJD の外観と各部名称。本文幅の図)。
+     内容は明らかなフィクション (TJD/THS のパロディ)。
+
+     【本文幅の図】公称サイズ 160x50mm は学会テンプレートの段の幅 (83.3mm) を超え、本文幅 (180mm) に収まる。
+     原稿では {.wide} を付けて段抜きにする。物理単位で書く理由は CLAUDE.md「原稿執筆の規約」(図の公称サイズが表示寸法と画素数の両方を決める)。
+     viewBox 480x150 と 160:50 は同じ縦横比 (3.2:1)。 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="160mm" height="50mm" viewBox="0 0 480 150" font-family="Arial, sans-serif">
+  <rect x="0.5" y="0.5" width="479" height="149" fill="#ffffff" stroke="#cccccc"/>
+
+  <rect x="12" y="52" width="76" height="44" rx="4" fill="#e8f0fe" stroke="#2E74B5"/>
+  <text x="50" y="70" font-size="11" text-anchor="middle" fill="#1a1a1a">subject</text>
+  <text x="50" y="84" font-size="11" text-anchor="middle" fill="#1a1a1a">(one author)</text>
+
+  <line x1="88" y1="74" x2="126" y2="74" stroke="#444444" stroke-width="1.5"/>
+  <polygon points="130,74 122,70 122,78" fill="#444444"/>
+
+  <rect x="130" y="30" width="196" height="90" rx="6" fill="#fef7e0" stroke="#b58a2e"/>
+  <text x="228" y="24" font-size="10" text-anchor="middle" fill="#666666">extremely heavy, many sharp corners</text>
+  <text x="228" y="50" font-size="12" text-anchor="middle" fill="#1a1a1a">apparatus body</text>
+
+  <rect x="142" y="60" width="84" height="24" rx="3" fill="#ffffff" stroke="#b58a2e"/>
+  <text x="184" y="76" font-size="10" text-anchor="middle" fill="#1a1a1a">low-hum emitter</text>
+  <rect x="234" y="60" width="80" height="24" rx="3" fill="#ffffff" stroke="#b58a2e"/>
+  <text x="274" y="76" font-size="10" text-anchor="middle" fill="#1a1a1a">sweat collector</text>
+  <rect x="142" y="90" width="172" height="22" rx="3" fill="#ffffff" stroke="#b58a2e"/>
+  <text x="228" y="105" font-size="10" text-anchor="middle" fill="#1a1a1a">exasperation microphone (supervisor side)</text>
+
+  <line x1="326" y1="74" x2="360" y2="74" stroke="#444444" stroke-width="1.5"/>
+  <polygon points="364,74 356,70 356,78" fill="#444444"/>
+
+  <rect x="364" y="52" width="104" height="44" rx="4" fill="#e6f4ea" stroke="#137333"/>
+  <text x="416" y="70" font-size="11" text-anchor="middle" fill="#1a1a1a">tremendous output</text>
+  <text x="416" y="86" font-size="13" text-anchor="middle" fill="#137333">2.6 tsu</text>
+
+  <text x="240" y="138" font-size="10" text-anchor="middle" fill="#666666">20 trials across three interaction conditions</text>
+</svg>
