@@ -59,7 +59,8 @@ clone した直後の `src/` には、ABE の Original Paper の体裁のサン�
 そのまま `bash scripts/build.sh --journal abe --article-type original` で組める見本で、書き換えて使ってもよい。
 別の原稿から始めるときは、先に `bash scripts/remove-sample.sh` でサンプルを消す (中身がサンプルのままのファイルだけを消し、
 書き換えたファイル・自分のファイルは残す。`--dry-run` で一覧だけを出す)。自分の `main.md` の隣にサンプルのファイル
-(カバーレター・文献・図) が残っていると、最終モードの package は止まる。出力の見本は `samples/` (`samples/README.md`)。
+(カバーレター・回答書・文献・図・ダミーの書式) が中身もそのまま残っていると、最終モードの package は止まる (`src/` のサンプル論文と、
+`src/` に写した `data/dummy/`・`data/dummy/abe/` の動作例が対象。リンクは数えず、消さない)。出力の見本は `samples/` (`samples/README.md`)。
 
 ```bash
 bash scripts/remove-sample.sh                 # src/ のサンプル論文を消す
@@ -724,7 +725,7 @@ cp data/journals/abe/skeleton/cover-letter.md src/cover-letter.md   # 任意 (�
 
 clone した直後の `src/` に入っているサンプル論文は、この骨格を埋めた形の架空の論文 (`data/dummy/abe/` の動作例に TJD の挿絵を足したもの) で、書き方の見本になる。
 `remove-sample.sh` は中身がサンプルのままのファイルだけを消すので、書き換えて残したいファイルは消えない。自分の `main.md` の隣に
-サンプルのファイルが残っていると、§8.4 の最終モードの package は止まる。
+サンプルのファイル (`src/` に写した `data/dummy/` の動作例を含む) が中身もそのまま残っていると、§8.4 の最終モードの package は止まる。
 
 骨格は規定の節の並び (表題ページ → Introduction → Materials and methods → Results → Discussion → Conclusion → Conflicts of interest →
 Ethics declaration → Acknowledgements → References) を記入式で持ち、記入欄は `<<...>>` で書かれている。**埋め忘れは §8.4 の規定チェックが

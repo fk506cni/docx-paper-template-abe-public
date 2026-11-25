@@ -141,7 +141,7 @@ docker compose -f docker/docker-compose.yml run --rm -u "$(id -u):$(id -g)" pand
 `data/output/abe/manuscript.docx` は 1 ページ目が表題ページ、2 ページ目からが行番号と柱 (running title) つきの 2 段組の本文で、
 図は本文の中に置かれています。`data/output/abe/SUBMISSION.md` には、アップロードするファイル (Word で PDF にした原稿と書式) の一覧、
 規定チェックの結果 (このサンプルでは指摘なし)、投稿前に見直す点が並びます。この手順では `SUBMISSION.md` に注記が 3 つ出ます。
-「`manuscript-diff.docx` は別の原稿から作られた」(パッケージが 4. で作った汎用のサンプルの差分を集めたため)・「`src/` の原稿は同梱のサンプル論文
+「`data/step03_diff/` の差分は別の原稿 (4. の汎用のサンプル) から作られたので、最終モードの提出物には入れなかった」・「`src/` の原稿は同梱のサンプル論文
 そのもの」・「記入済みの書式の置き場所 `src/forms/` が無い」です。同じ論文 (TJD の挿絵を除いたもの) にダミーの書式を付けたものが `data/dummy/abe/` にあり、8. の 2 つのコマンドに
 `--input data/dummy/abe` を付けると、書式がパッケージに集められる様子を見られます。clone した直後の `src/` にはサンプル論文一式 (`main.md`・`ref.bib`・
 `cover-letter.md`・図 3 点) が入っているので、書き換えて使う雛形にもなります。9. は照合した本文の引用 17 件と文献 10 行をそれぞれ `OK` と出し、Word の書式 (角括弧・巻の太字) は
@@ -157,12 +157,18 @@ docker compose -f docker/docker-compose.yml run --rm -u "$(id -u):$(id -g)" pand
 rm -f .development              # the input root is src/
 rm -f data/step03_diff/*.docx data/step03_diff/.main_diff.source   # drop the sample diff made above
 bash scripts/remove-sample.sh   # remove the sample paper in src/ (only files unchanged from the sample)
-cp data/journals/abe/skeleton/main.md src/main.md   # ABE skeleton; fill in the <<...>> fields
+[ -e src/main.md ] || cp data/journals/abe/skeleton/main.md src/main.md   # ABE skeleton; fill in the <<...>> fields
 ```
 
 `scripts/remove-sample.sh` は、中身がサンプルのままのファイルだけを消すので、自分で書いたファイルを消すことは無く、何度回しても害はありません
-(`--dry-run` で消すものの一覧だけを出します)。自分の `main.md` の隣にサンプルのファイルが残っていると、最終モードのパッケージは止まります
-(サンプルのカバーレター・文献・図が自分の提出物に入らないようにするため)。
+(`--dry-run` で消すものの一覧だけを出します)。自分の `main.md` の隣に同梱のサンプルのファイルが中身もそのまま残っていると、最終モードのパッケージは止まります
+(サンプルのカバーレター・回答書・文献・図・ダミーの書式が自分の提出物に入らないようにするため)。対象は `src/` のサンプル論文と、
+`src/` に写した `data/dummy/`・`data/dummy/abe/` の動作例です (中身で比べるので、書き換えたファイルは数えません)。
+最後の行は `src/main.md` が無いときだけ骨格を写すので、書き換えた `main.md` を上書きすることはありません。
+サンプル論文そのものを出発点にして `src/main.md` を書き換え始めたなら、このブロックは貼らないでください。`remove-sample.sh` は、
+書き換えた `main.md` が引いている (中身はサンプルのままの) `ref.bib` と図も消します (消えたファイルだけを戻すには
+`git ls-files --deleted src | xargs git checkout --`。`git checkout -- src/` は書き換えも元に戻してしまいます)。
+下の汎用のサンプルを写すコマンドも、`src/` の同じ名前のファイルを上書きするので同じです。
 
 ABE に出すなら [docs/usage-guide.md](docs/usage-guide.md) §8 の通し手順に沿い、投稿当日は
 [docs/abe-submission-checklist.md](docs/abe-submission-checklist.md) を上から確かめてください。ほかの誌に出すなら、

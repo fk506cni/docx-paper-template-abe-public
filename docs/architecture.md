@@ -484,7 +484,12 @@ Markdown の層で原稿を読み、上限と執筆の検査を掛ける。結�
 - **走査層の前提**: Div の開始は `::: {…}` (波括弧つき) と書く。「References が最後の節か」は第 1 レベルの見出しだけを見る。
 - lint の既定値の置き方 (基底と誌の 2 層) は [`docs/profile-schema.md`](profile-schema.md) の「lint の 2 層構成」。
 - **回帰試験** (`main/step05_package/test_validate_abe.py`): 適合原稿・不適合原稿とその変種・補足資料の容量・`data/dummy/abe` を
-  1 か所ずつ変えた変種の件数と文面を、素の assert で 132 件照合する。
+  1 か所ずつ変えた変種の件数と文面を、素の assert で 132 件照合する。`src/main.md` が同梱のサンプルの指紋と合わないのに、
+  サンプルのほかのファイルが残っている (指紋の一覧に行を足し忘れた) ときは不合格にする。
+- **サンプルの消し残しの判定の試験** (`main/step05_package/test_sample_gate.py`): 判定の規則 (`main/step05_package/sample_files.py`。
+  package.sh が使う) と `scripts/remove-sample.sh` が、同じファイルを「同梱のサンプルのまま」とみなすかを、一時ディレクトリに作った
+  作業ツリー (サンプルのまま・main.md だけ書き換えた・汎用のサンプルを写した・指紋の一覧の書き方の違い・ファイルとディレクトリのリンク・
+  data/dummy/ そのもの) で 28 件照合する。
 
 #### 提出マニフェスト `SUBMISSION.md` と補足資料
 

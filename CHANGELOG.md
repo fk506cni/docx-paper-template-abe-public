@@ -3,6 +3,31 @@
 All notable changes to this project are recorded in this file.
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## 0.1.1 — fixes to the sample checks, the notices and the sample outputs
+
+### Fixed
+
+- **Sample leftovers**: a final package also stops when unchanged files of the generic sample
+  (`data/dummy/`) or of the ABE sample in `data/dummy/abe/` (including the placeholder forms) were
+  copied into `src/` and left next to a `main.md` of your own; before, only the sample paper in `src/`
+  was recognised, so a fictional cover letter and response letter could reach a final package.
+  `scripts/remove-sample.sh` removes those copies too, follows the same rules as the package
+  (`main/step05_package/sample_files.py`), and leaves files alone when any part of their path is a
+  symbolic link. `main/step05_package/test_sample_gate.py` checks that both agree.
+- **Diff in a final package**: a diff in `data/step03_diff/` that was made from another manuscript
+  or for another journal is left out of a final package (with a note), instead of being collected
+  as `manuscript-diff.docx` with only a note.
+- **Start your own manuscript**: the README's copy of the ABE skeleton no longer overwrites a
+  `src/main.md` you have edited, and the README explains how to restore only the files that
+  `remove-sample.sh` removed.
+- **Notices**: `THIRD_PARTY_NOTICES.md` now describes the sample outputs in `samples/` (made with the
+  society's page layout, without its text, images or styles; the fonts they embed) and the origin of
+  the illustration in the sample paper, which the sample paper now discloses as AI-generated.
+- **Sample outputs**: the ABE sample PDFs in `samples/abe/` were rebuilt with Word so that they carry
+  the paper's new disclosure of the AI-generated illustration. `samples/README.md` explains why the
+  text box overlaps the title on page 1 of the generic sample, and `scripts/make-samples.sh` builds
+  only from a committed working tree with the bundled sample paper unchanged.
+
 ## 0.1.0 — first public release
 
 ### Added

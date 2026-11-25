@@ -206,11 +206,14 @@ system. The analytical balance is commercially available from the manufacturer n
 
 ## Use of artificial intelligence tools
 
-No generative artificial intelligence (AI) tool was used in this study. The authors used SpellHunch
-(version 0.0, Vibes Research Institute, Vibeston, Fictionia), a non-generative AI tool, only to check
-the spelling and grammar of the manuscript. The tool was not used to collect or analyse data, to
-produce or amend figures, or to write any part of the text, and the authors take full responsibility
-for the entire content of the manuscript.
+A generative artificial intelligence (AI) tool was used only to draw the illustration of the
+apparatus in [@fig:tjd]: HunchCanvas (version 0.0, Vibes Research Institute, Vibeston, Fictionia)
+generated it from a description of the apparatus written by the authors, who checked every labelled
+part against the apparatus; the illustration shows no data. No other generative AI tool was used in
+this study. The authors used SpellHunch (version 0.0, Vibes Research Institute, Vibeston, Fictionia),
+a non-generative AI tool, only to check the spelling and grammar of the manuscript. Neither tool was
+used to collect or analyse data or to write any part of the text, and the authors take full
+responsibility for the entire content of the manuscript.
 
 # Results
 

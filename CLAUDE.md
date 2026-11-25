@@ -91,6 +91,8 @@ docker compose -f docker/docker-compose.yml run --rm -u "$(id -u):$(id -g)" pand
 bash scripts/check-diff.sh                           # 差分エンジン (テンプレートがあれば abe でも回す)
 docker compose -f docker/docker-compose.yml run --rm -u "$(id -u):$(id -g)" pandoc \
     python3 main/step05_package/test_validate_abe.py # ABE の規定チェックの回帰試験
+docker compose -f docker/docker-compose.yml run --rm -u "$(id -u):$(id -g)" pandoc \
+    python3 main/step05_package/test_sample_gate.py  # サンプルの消し残しの判定 (package.sh と remove-sample.sh が同じか。28 件)
 
 # PDF (任意。Windows 側の watcher が要る)
 bash scripts/push-win-tools.sh     # Windows 側の 3 ファイルを Drive の送出先へ送る
@@ -196,7 +198,9 @@ Rectangles denote processing stages. EHR, electronic health record.
   新しい版を使うなら、その値を表示された値に書き換え、出てくる警告と roundtrip の PDF の見た目を確かめ直す。
 - **骨格から書き始める**: clone した直後の `src/` には記入済みのサンプル論文 (`data/dummy/abe/` の動作例に TJD の挿絵を足したもの) が入っているので、
   先に `bash scripts/remove-sample.sh` で消し (中身がサンプルのままのファイルだけを消す)、それから
-  `cp data/journals/abe/skeleton/main.md src/main.md`。自分の `main.md` の隣にサンプルのファイルが残っていると、最終モードの package は止まる。
+  `cp data/journals/abe/skeleton/main.md src/main.md`。自分の `main.md` の隣にサンプルのファイル (`src/` に写した `data/dummy/` の動作例を含む) が
+  中身もそのまま残っていると、最終モードの package は止まる (判定の規則は `main/step05_package/sample_files.py`。`remove-sample.sh` も同じ規則)。
+  サンプル論文そのものを書き換えて使うなら、この 2 つは回さない (`remove-sample.sh` が書き換えた `main.md` の引く `ref.bib` と図を消し、`cp` は `main.md` を上書きする)。
   記入欄は `<<...>>` (埋め忘れは規定チェックが要修正にする)。
   定型の記述の文例は `data/journals/abe/skeleton/statements.md` (参照専用)、任意のカバーレターは `skeleton/cover-letter.md`。
   記入済みの動作例は `data/dummy/abe/` (`--input data/dummy/abe` でビルドできる)。規定の要点は骨格の各節の頭のコメントにある。

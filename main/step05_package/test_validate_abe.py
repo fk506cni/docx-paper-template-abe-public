@@ -413,24 +413,33 @@ def test_units():
 # 7. ほかの誌のフィクスチャ
 # ---------------------------------------------------------------------
 
-def src_sample_present():
-    """src/main.md が同梱のサンプル論文そのものか (scripts/lib/sample-files.sha256 の指紋で見る)。
+def src_sample_state():
+    """src/ の同梱のサンプル論文の状態 (scripts/lib/sample-files.sha256 の指紋で見る。読み方は sample_files.py = package.py と同じ)。
 
-    サンプルを消して自分の原稿を書いた後は、その原稿を検査しない (試験の対象は同梱のサンプルだけ)。"""
-    import hashlib
+    "sample"  = src/main.md がサンプルそのもの (試験する)
+    "drift"   = src/main.md は一覧に無いのに、一覧のほかのファイルが中身もそのまま残っている (サンプルの本文を直して
+                一覧に行を足し忘れた疑い。このまま公開すると、サンプルのままの原稿でも最終パッケージで止まるので、不合格にする)
+    "absent"  = サンプルを消して自分の原稿を書いた後 (その原稿は試験の対象外なので黙って飛ばす)"""
+    import sample_files
     lst = ROOT / "scripts" / "lib" / "sample-files.sha256"
-    main_md = ROOT / "src" / "main.md"
-    if not (lst.is_file() and main_md.is_file()):
-        return False
-    sha = hashlib.sha256(main_md.read_bytes()).hexdigest()
-    return any(ln.split()[:2] == [sha, "main.md"] for ln in lst.read_text(encoding="utf-8").splitlines())
+    if not lst.is_file():
+        return "absent"
+    is_sample, left = sample_files.list_state(ROOT / "src", lst)
+    if is_sample:
+        return "sample"
+    return "drift" if left else "absent"
 
 
 def test_existing_journals():
     expect_counts("data/dummy (_default)", run(DUMMY, journal="_default", article_type=None), 0, 0)
     # 同梱のサンプル論文 (src/) は data/dummy/abe と同じ論文なので、要修正 0・参考 0 (サンプルが無ければ黙って飛ばす)
-    if src_sample_present():
+    state = src_sample_state()
+    if state == "sample":
         expect_counts("同梱のサンプル論文 src/ (abe)", run(ROOT / "src"), 0, 0)
+    elif state == "drift":
+        check("同梱のサンプル論文 src/ の指紋の一覧が古くない", False,
+              "src/main.md が scripts/lib/sample-files.sha256 に無いのに、一覧のほかのファイルが中身もそのまま残っている。"
+              "サンプルの本文を直したなら、直したファイルの行を一覧に足す (bash scripts/remove-sample.sh --check で確かめる)")
     if present("bhi", DUMMY / "bhi", DUMMY / "bhi-lint"):
         expect_counts("bhi の動作例 (bhi)", run(DUMMY / "bhi", journal="bhi"), 0, 0)
         expect_counts("bhi の不適合フィクスチャ (bhi)", run(DUMMY / "bhi-lint", journal="bhi"), 23, 4)

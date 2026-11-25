@@ -21,8 +21,8 @@ keep the attribution and share it under the same license.
 The `abe` profile builds its reference document from `ABETemplate.docx`, the Word template that the
 Japanese Society for Medical and Biological Engineering (JSMBE) distributes with the Instructions to
 Authors of *Advanced Biomedical Engineering* (<https://abe-journal.org/authorinstructions>).
-The template belongs to the society. This repository **does not include it, nor any file derived
-from it**:
+The template belongs to the society. This repository **does not include it, nor the reference
+document generated from it, nor any of its styles, theme, numbering definitions, text or images**:
 
 - You download the template yourself and place it at `data/journals/abe/ABETemplate.docx`.
 - `bash data/journals/make-reference.sh abe` (run by `scripts/build.sh` and `scripts/diff.sh` when
@@ -32,6 +32,16 @@ from it**:
   directory, so neither file is committed by accident.
 - The forms in `data/dummy/abe/forms/` are placeholders written for the sample; they are not the
   society's forms.
+- The only output made with the template that is included is the pair of sample PDFs in
+  `samples/abe/` (`manuscript.pdf` and `manuscript-diff.pdf`): the bundled sample paper built with
+  the `abe` profile and converted to PDF by Microsoft Word. They show the page layout that the
+  template produces (a one-column title page, a two-column body with line numbers, the running
+  title and the page numbers), but they contain none of the template's example text, names,
+  references or drawings. The two editorial placeholder lines on the title page
+  (`Received ………….. [Do not enter]`) and the conflict-of-interest sentence that the Instructions
+  to Authors prescribe word for word come from the sample manuscript in `src/`. The matching .docx
+  files are not included, because they would carry the template's styles, theme and numbering
+  definitions.
 
 ## 3. pandoc and its default data
 
@@ -41,8 +51,8 @@ with listed exceptions (for example, pandoc's document templates are dual-licens
 GPL or the BSD 3-clause license). The default Word and PowerPoint reference documents
 (`reference.docx` / `reference.pptx`) are not among the listed exceptions.
 
-For that reason this repository **does not include pandoc's reference documents or files derived
-from them**:
+For that reason this repository **does not include pandoc's reference documents, nor the reference
+documents generated from them**:
 
 - The generic reference document is generated on your machine by
   `bash data/journals/make-reference.sh <id>`, which takes pandoc's default reference document
@@ -51,6 +61,9 @@ from them**:
   run it for you when the file is missing.
 - PowerPoint figure files (for journals that ask for them) are built at run time from pandoc's
   default `reference.pptx`, which is read from pandoc inside the container.
+- The sample outputs in `samples/_default/` (`manuscript.docx`, `manuscript-diff.docx` and their
+  PDFs) were built with the generic reference document, so, like every document that pandoc
+  writes, the .docx files carry its styles. They are included only as examples of the output.
 
 pandoc itself is not distributed with this repository. It is downloaded from the pandoc
 releases on GitHub when you build the `docx-paper-template-pandoc` image, and runs as a separate
@@ -78,6 +91,26 @@ None of it is part of this repository. Each component is subject to its own lice
 - **Proprietary fonts** (for example Calibri or Yu Gothic) are not included. If you need them in
   final figures, place the font files you are licensed to use in `fonts/`; that directory is
   ignored by git.
+- **Fonts embedded in the sample PDFs**: the PDFs in `samples/` were made by Microsoft Word and
+  embed subsets of Times New Roman, Arial and Cambria Math (the PDFs in `samples/_default/` also
+  embed subsets of Consolas and Symbol). Each of these fonts sets its embedding permission (the
+  `fsType` field of its OS/2 table) to 8, "editable embedding", which allows a document to embed
+  the font and to be distributed with it. Only the glyphs used in each PDF are embedded, and the
+  fonts themselves remain subject to their own licenses.
 
 Because the built `svg-conversion` image contains these font files, keep it on your own machine
 and do not push it to a public registry.
+
+## 6. The illustration of the apparatus (`src/figs/fig-tjd.jpg`)
+
+The illustration in the sample paper in `src/` (Fig. 1, the apparatus with its parts labelled in
+Japanese) was made by the author of this repository with a generative AI image tool, and first
+published in the author's earlier public repository
+<https://github.com/fk506cni/jami-pandoc-public> (`src/figs/sample-tjd.png`) as part of the same
+fictional story. The copy here is the same picture reduced to 2126 pixels wide and saved as JPEG; it
+carries no metadata beyond the basic JPEG header. It belongs to the same author and is provided here
+under this repository's [MIT License](LICENSE). It is fiction: it shows no real device, person or data.
+The sample paper discloses the use of the tool in its section "Use of artificial intelligence tools"
+(the tool named there, like everything else in the paper, is part of the fiction). The illustration is
+not part of `data/dummy/abe/`, which the checks use, and `scripts/remove-sample.sh` removes it with the
+rest of the sample paper.

@@ -13,6 +13,11 @@
 # PDF は roundtrip.sh --skip-build --no-package (Google Drive と Windows の Word。任意の機能で、外向きの操作) で作り、
 # data/products/main.pdf・main_diff.pdf を samples/<誌>/manuscript.pdf・manuscript-diff.pdf に写す。
 #
+# 見本は公開物に出るので、commit 済みの同梱のサンプルと処理からだけ作る。abe は src/ が指紋の一覧
+# (scripts/lib/sample-files.sha256) と一致すること、両誌とも入力と処理 (src・data/dummy・data/journals・main・scripts・docker・samples) に
+# commit していない変更が無いことを確かめてから組む。PDF まで作り終えたら samples/<誌>/SOURCE.txt に出所 (commit・入力と出力の
+# SHA-256) を書く。公開物を作る側の検査がこの記録を原本と照らす (SOURCE.txt は公開物に出さない)。
+#
 # 使い方:
 #   bash scripts/make-samples.sh --journal _default
 #   bash scripts/make-samples.sh --journal abe
@@ -50,7 +55,8 @@ replace_once() {
     local file="$1" from="$2" to="$3" n
     n="$(grep -c -F -- "$from" "$file" || true)"
     if [ "$n" != "1" ]; then
-        echo "エラー: $file に「$from」が ${n} 回あります (1 回のはず)。原稿が変わったので、このスクリプトの書き換えを直してください" >&2
+        # src/ がサンプルのままかは先に確かめるので、ここに来るのはサンプル自体を直したときだけ
+        echo "エラー: $file に「$from」が ${n} 回あります (1 回のはず)。同梱のサンプルの本文を直したなら、このスクリプトの書き換えの語句も合わせてください" >&2
         exit 1
     fi
     # ホストの道具 (awk) だけで書き換える (README の要件は Docker・bash・git。正規表現ではなく固定文字列で探す)
@@ -59,6 +65,47 @@ replace_once() {
         { print }' "$file" > "$file.tmp"
     mv "$file.tmp" "$file"
 }
+
+case "$JOURNAL" in
+    _default|abe) ;;
+    "") echo "エラー: --journal を指定してください (_default か abe)" >&2; usage >&2; exit 1 ;;
+    *)  echo "エラー: --journal は _default か abe です (指定: $JOURNAL)" >&2; exit 1 ;;
+esac
+
+# ---- 見本は commit 済みの同梱のサンプルと処理からだけ作る
+# (見本は公開物に出る。私的な変更を含む作業ツリーや自分の原稿から作ると、Word の PDF に描かれた私的な文面が見本に入るおそれがある。
+#  作り終えたら samples/<誌>/SOURCE.txt に出所 (commit・入力と出力の SHA-256) を書く)
+if command -v sha256sum >/dev/null 2>&1; then
+    hash_of() { sha256sum < "$1" | cut -d' ' -f1; }
+elif command -v shasum >/dev/null 2>&1; then
+    hash_of() { shasum -a 256 < "$1" | cut -d' ' -f1; }
+else
+    echo "エラー: sha256sum も shasum もありません (見本の出所を記録できません)" >&2; exit 1
+fi
+sample_inputs() {   # 見本の入力 (出所の記録に載せ、書き出しで照らすファイル)
+    case "$JOURNAL" in
+        abe)      git ls-files -- src | grep -v -E '(^|/)(README\.md|\.gitkeep)$' | grep -v -x 'src/cover-letter.md' ;;
+        _default) git ls-files -- data/dummy/main.md data/dummy/ref.bib data/dummy/figs ;;
+    esac
+}
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "エラー: git の作業ツリーではありません (見本は commit 済みの原稿と処理からだけ作ります)" >&2; exit 1
+fi
+if [ "$JOURNAL" = "abe" ] && ! bash scripts/remove-sample.sh --check >/dev/null 2>&1; then
+    echo "エラー: src/ が同梱のサンプル論文と一致しません (scripts/lib/sample-files.sha256 で確かめた)。" >&2
+    echo "  見本は同梱のサンプルからだけ作ります。自分の原稿の src/ では回さないでください。" >&2
+    echo "  サンプルを直したのなら、直したファイルの行を一覧に足して commit してから回してください" >&2
+    echo "  (bash scripts/remove-sample.sh --check で、合わないファイルが分かります)" >&2
+    exit 1
+fi
+dirty="$(git status --porcelain --untracked-files=all -- src data/dummy data/journals main scripts docker samples 2>/dev/null || true)"
+if [ -n "$dirty" ]; then
+    echo "エラー: 見本の入力か処理に commit していない変更があります (見本は commit 済みのものからだけ作ります):" >&2
+    printf '%s\n' "$dirty" | sed 's/^/   /' >&2
+    echo "  commit してから回してください (見本を試すだけなら、このスクリプトではなく build.sh と diff.sh を直接回す)" >&2
+    exit 1
+fi
+HEAD_COMMIT="$(git rev-parse HEAD)"
 
 case "$JOURNAL" in
     _default)
@@ -126,6 +173,8 @@ fi
 
 if [ "$PDF" = 0 ]; then
     echo "-- --no-pdf: PDF は作りません ($OUT/ の PDF は前のまま)"
+    echo "   出所の記録 ($OUT/SOURCE.txt) も書き換えません。docx だけを作り直した見本は記録と合わないので、書き出しの検査 (9) が止めます"
+    echo "   (公開物に出すなら PDF まで作り直す)"
     exit 0
 fi
 
@@ -143,4 +192,21 @@ for pair in "main.pdf:manuscript.pdf" "main_diff.pdf:manuscript-diff.pdf"; do
     cp "$src" "$dst"
     echo "  写した: $dst"
 done
+
+# 出所の記録 (公開物には出さない)。書きかけのファイルは $OUT の外 ($WORK) に置く ($OUT の中に置くと、出力の一覧に自分が入る)
+REC="$OUT/SOURCE.txt"
+REC_TMP="$WORK/SOURCE-$JOURNAL.txt.tmp"
+{
+    echo "# $OUT/ の出所 (scripts/make-samples.sh が書く。公開物を作る側の検査が原本と照らす。"
+    echo "# 公開物には出さない。手で書き換えない。入力が変わったら make-samples.sh で作り直す)"
+    printf 'journal\t%s\n' "$JOURNAL"
+    printf 'commit\t%s\n' "$HEAD_COMMIT"
+    printf 'clean\tyes\n'
+    sample_inputs | while IFS= read -r f; do printf 'input\t%s\t%s\n' "$(hash_of "$f")" "$f"; done
+    find "$OUT" -type f ! -name SOURCE.txt | LC_ALL=C sort | while IFS= read -r f; do
+        printf 'output\t%s\t%s\n' "$(hash_of "$f")" "$f"
+    done
+} > "$REC_TMP"
+mv "$REC_TMP" "$REC"
+echo "  書いた: $REC (出所の記録)"
 echo "== 完了: $OUT/ (samples/README.md の表と合っているかを確かめて commit する) =="

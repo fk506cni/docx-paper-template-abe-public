@@ -20,8 +20,9 @@ bash scripts/remove-sample.sh --dry-run   # 消すもの・残すものの一覧
 bash scripts/remove-sample.sh             # 中身がサンプルのままのファイルだけを消す (書き換えたファイルは残す)
 ```
 
-自分の `main.md` の隣にサンプルのファイル (カバーレター・文献・図) が中身もそのまま残っていると、最終モードの
-`package.sh` は止まる (サンプルのファイルが自分の提出物に入らないようにするため)。サンプルから作った出力の見本は
+自分の `main.md` の隣にサンプルのファイル (カバーレター・回答書・文献・図・ダミーの書式) が中身もそのまま残っていると、最終モードの
+`package.sh` は止まる (サンプルのファイルが自分の提出物に入らないようにするため)。対象はこのサンプル論文と、`src/` に写した
+`data/dummy/`・`data/dummy/abe/` の動作例 (中身で比べるので、書き換えたファイルは数えない)。サンプルから作った出力の見本は
 `samples/` (`samples/README.md`) にある。
 
 ## 構成 (執筆時にここへ作る)
@@ -44,8 +45,12 @@ ABE に出すなら、サンプルを消してから記入式の骨格を写す:
 
 ```bash
 bash scripts/remove-sample.sh
-cp data/journals/abe/skeleton/main.md src/main.md   # 記入欄は <<...>>
+[ -e src/main.md ] || cp data/journals/abe/skeleton/main.md src/main.md   # 記入欄は <<...>> (書き換えた main.md は上書きしない)
 ```
+
+サンプル論文そのものを書き換えて使っているなら、このブロックも下の汎用のサンプルのブロックも回さない。`remove-sample.sh` は
+書き換えた `main.md` が引いている (中身はサンプルのままの) `ref.bib` と図も消し、汎用のサンプルの `cp` は同じ名前のファイルを上書きする
+(消えたファイルだけを戻すには `git ls-files --deleted src | xargs git checkout --`。`git checkout -- src/` は書き換えも元に戻す)。
 
 ほかの誌に出すなら、汎用のサンプル (`data/dummy/`。タイトル/著者/抄録/本文/図 (SVG+PDF+mermaid)/引用/表/textbox を網羅) を写す:
 

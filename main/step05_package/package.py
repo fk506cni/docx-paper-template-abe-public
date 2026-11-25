@@ -2447,35 +2447,24 @@ def cmd_figures_source(args):
         sys.exit(1)
 
 
-# ---- 同梱のサンプル論文 (src/) の消し忘れ ----
-# clone した直後の src/ には ABE の体裁のサンプル論文 (架空) がある。自分の main.md に書き換えてもサンプルの
-# カバーレター・文献・図が残っていると、それが自分の論文の提出物に入る。一覧はサンプルの各ファイルの SHA-256
-# (scripts/remove-sample.sh と共用)
-SAMPLE_LIST = Path("scripts/lib/sample-files.sha256")
+# ---- 同梱のサンプル (src/ のサンプル論文と data/dummy/ の動作例) の消し忘れ ----
+# clone した直後の src/ には ABE の体裁のサンプル論文 (架空) がある。README の案内で汎用のサンプル (data/dummy/) を src/ に写すこともある。
+# 自分の main.md に書き換えてもサンプルのカバーレター・回答書・文献・図・書式が残っていると、それが自分の論文の提出物に入る。
+# 判定の規則は sample_files.py にまとめた (scripts/remove-sample.sh と同じ規則。指紋の一覧 scripts/lib/sample-files.sha256 の
+# ABE のサンプルに加えて、src/ に写した汎用のサンプルと動作例の書式も数える)
+import sample_files  # noqa: E402
+
+SAMPLE_LIST = sample_files.SAMPLE_LIST
 
 
 def sample_leftovers(input_root):
-    """(main.md がサンプルそのものか, 中身がサンプルと同じまま残っている main.md 以外のファイル) を返す。
+    """(main.md が同梱のサンプルそのものか, 中身がサンプルと同じまま残っている main.md 以外のファイル) を返す。
 
     中身 (SHA-256) で比べるので、書き換えたファイルや同じ名前の自分のファイルは数えない。一覧に同じパスの行が 2 つ以上あれば
-    (公開した版ごとのサンプル)、どれかと一致すればサンプルとみなす。一覧が無ければ (False, [])。
+    (公開した版ごとのサンプル)、どれかと一致すればサンプルとみなす。動作例 (data/dummy/ と data/dummy/abe/) はその場の中身と比べる。
+    入力ルートが data/dummy/ の下なら (False, [])。規則は sample_files.py の冒頭。
     """
-    if not SAMPLE_LIST.is_file():
-        return False, []
-    entries = []
-    for ln in SAMPLE_LIST.read_text(encoding="utf-8", errors="replace").splitlines():
-        cols = ln.split()
-        if len(cols) == 2 and re.fullmatch(r"[0-9a-f]{64}", cols[0]):
-            entries.append((cols[1].lstrip("*"), cols[0]))
-    root = Path(input_root)
-
-    def same(rel, sha):
-        f = root / rel
-        return f.is_file() and _file_sha256(f) == sha
-
-    is_sample = any(rel == "main.md" and same(rel, sha) for rel, sha in entries)
-    left = list(dict.fromkeys(rel for rel, sha in entries if rel != "main.md" and same(rel, sha)))
-    return is_sample, left
+    return sample_files.leftovers(input_root)
 
 
 def _sample_check(input_root, mode):
@@ -2486,14 +2475,14 @@ def _sample_check(input_root, mode):
     else:
         cmd = f"bash scripts/remove-sample.sh --input {input_root}"
     if is_sample:
-        return [f"入力ルート {input_root} の原稿は、同梱のサンプル論文 (架空の論文) そのものです。自分の論文を組むときは、"
-                f"先に '{cmd}' でサンプルのファイルを消してください"]
+        return [f"入力ルート {input_root} の原稿は、同梱のサンプル (src/ のサンプル論文か data/dummy/ の動作例。架空の論文) そのものです。"
+                f"自分の論文を組むときは、先に '{cmd}' でサンプルのファイルを消してください"]
     if not left:
         return []
-    msg = (f"入力ルート {input_root} の main.md は同梱のサンプル論文ではないのに、サンプル論文のファイルが中身もそのまま"
-           f"残っています: {', '.join(left)}。このまま組むと、サンプルのカバーレター・文献・図が自分の論文の提出物に入ります。"
-           f"'{cmd}' でサンプルのファイルを消してから (中身がサンプルと同じファイルだけを消し、書き換えたファイルは残します)、"
-           "build からやり直してください")
+    msg = (f"入力ルート {input_root} の main.md は同梱のサンプルではないのに、サンプル (src/ のサンプル論文か data/dummy/ の動作例) の"
+           f"ファイルが中身もそのまま残っています: {', '.join(left)}。このまま組むと、サンプルのカバーレター・回答書・文献・図・書式が"
+           f"自分の論文の提出物に入ります。'{cmd}' でサンプルのファイルを消すか (中身がサンプルと同じファイルだけを消し、書き換えたファイルは"
+           "残します)、自分の内容に書き換えてから、build からやり直してください")
     if mode == "final":
         sys.exit(f"エラー: {msg}。")
     return [msg]
@@ -2806,6 +2795,7 @@ def cmd_assemble(args):
     # main.docx より古い差分なら陳腐化警告 (初回投稿への古い差分混入を防ぐ。
     # roundtrip.sh の phase_collect と同方式。同梱自体は維持し非破壊)。
     diff_src = DIFF_DIR / "main_diff.docx"
+    skip_diff = False
     if diff_src.is_file():
         # 別の原稿・別の誌から作った差分や古い差分が、提出物に黙って混ざらないようにする。
         # diff.sh は誌と新版の原稿のパスを .main_diff.source に記録する。食い違えば SUBMISSION.md の注意にも載せる
@@ -2836,15 +2826,25 @@ def cmd_assemble(args):
                 diff_notes.append(f"記事種別 {d_type} で作られている (今回は {args.article_type})")
         else:
             diff_notes.append("どの原稿から作ったかの記録が無い")
-        if diff_notes:
+        if diff_notes and mode == "final":
+            # 最終モードでは、出所の食い違う差分を提出物に入れない (入れると roundtrip.sh がパッケージごと Drive の
+            # submission-<誌>/ に置く)。止めるとクイックスタートの 8. が通らないので、入れずに注意する
+            skip_diff = True
+            msg = ("data/step03_diff/main_diff.docx は " + " / ".join(diff_notes) + "。別の原稿や古い版の差分かもしれないので、"
+                   "最終モードの提出物には入れなかった (manuscript-diff.docx は無い)。再投稿で使うなら 'bash scripts/diff.sh' で"
+                   "作り直してから package し直してください")
+            print(f"  [注意] {msg}")
+            struct_warnings.append(msg)
+        elif diff_notes:
             msg = ("manuscript-diff.docx (元は data/step03_diff/main_diff.docx) は "
                    + " / ".join(diff_notes) + "。別の原稿や古い版の差分かもしれないので、"
                    "再投稿で使うなら 'bash scripts/diff.sh' で作り直し、使わないなら "
                    "data/step03_diff/main_diff.docx を消してから package し直してください")
             print(f"  [注意] {msg}")
             struct_warnings.append(msg)
-    _copy_if_exists(diff_src, out_dir / "manuscript-diff.docx",
-                    "manuscript-diff (任意)", collected, missing)
+    if not skip_diff:
+        _copy_if_exists(diff_src, out_dir / "manuscript-diff.docx",
+                        "manuscript-diff (任意)", collected, missing)
 
     # --- revise-report / cover-letter (任意) ---
     # 前段 (build) の出力は入力ルートを切り替えても残るため、別原稿の

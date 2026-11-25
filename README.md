@@ -165,8 +165,9 @@ abstract is highlighted. `data/output/abe/manuscript.docx` has the title page on
 two-column body with line numbers and the running title from page 2, with the figures in place.
 `data/output/abe/SUBMISSION.md` lists the files to upload (the manuscript as a PDF made by Word,
 and the forms), the rule-check results (none for this sample), and the points to review before
-submitting. In this walkthrough `SUBMISSION.md` also carries three notes: `manuscript-diff.docx` was
-made from a different manuscript (the package collects the diff of the generic sample made in 4.),
+submitting. In this walkthrough `SUBMISSION.md` also carries three notes: the diff in
+`data/step03_diff/` was made from a different manuscript (the generic sample in 4.), so the final
+package leaves it out instead of collecting it as `manuscript-diff.docx`,
 the manuscript in `src/` is the bundled sample paper itself, and `src/forms/` (where your filled-in
 forms go) does not exist yet. The same paper with placeholder forms is in `data/dummy/abe/`; add
 `--input data/dummy/abe` to the two commands of 8. to see the forms collected into the package.
@@ -187,13 +188,22 @@ replace that value with the one printed, build again, and check the warnings and
 rm -f .development              # the input root is src/
 rm -f data/step03_diff/*.docx data/step03_diff/.main_diff.source   # drop the sample diff made above
 bash scripts/remove-sample.sh   # remove the sample paper in src/ (only files unchanged from the sample)
-cp data/journals/abe/skeleton/main.md src/main.md   # ABE skeleton; fill in the <<...>> fields
+[ -e src/main.md ] || cp data/journals/abe/skeleton/main.md src/main.md   # ABE skeleton; fill in the <<...>> fields
 ```
 
 `scripts/remove-sample.sh` removes only the files whose content is still that of the sample, so it
 never removes a file you wrote, and running it again is harmless (`--dry-run` lists what it would
-remove). A final package stops while files of the sample remain next to a `main.md` of your own, so
-that the sample cover letter, references and figures do not end up in your submission.
+remove). A final package stops while unchanged files of the bundled samples remain next to a `main.md`
+of your own, so that a sample cover letter, response letter, references, figures or placeholder forms do
+not end up in your submission. This covers the sample paper in `src/` and the samples in `data/dummy/`
+and `data/dummy/abe/` copied into `src/` (compared by content, so files you have edited do not count).
+The last line copies the skeleton only when `src/main.md` is gone, so a `main.md` you have edited is
+never overwritten. If you have started from the sample paper itself (editing `src/main.md` in place),
+do not run this block at all: `remove-sample.sh` would also remove the unchanged `ref.bib` and figures
+that your `main.md` still cites (to bring back only the removed files, run
+`git ls-files --deleted src | xargs git checkout --`; a plain `git checkout -- src/` would also undo
+your edits). The same applies to the
+copy commands for the generic sample below, which overwrite files of the same name in `src/`.
 
 For ABE, follow the walkthrough in [docs/usage-guide.md](docs/usage-guide.md) §8 and the checklist
 [docs/abe-submission-checklist.md](docs/abe-submission-checklist.md) on submission day. For another
